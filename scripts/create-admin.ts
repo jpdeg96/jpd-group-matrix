@@ -27,7 +27,6 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { createInterface } from "node:readline";
-import { Writable } from "node:stream";
 import { prisma } from "../lib/db/prisma";
 import { recordAudit } from "../lib/services/audit";
 import { USER_COLOR_PALETTE } from "../lib/domain/constants";
@@ -39,50 +38,147 @@ const MIN_PASSWORD_LENGTH = 10;
 
 const assumeYes = process.argv.includes("--yes") || process.argv.includes("-y");
 
+const interactive = process.stdin.isTTY === true;
+
 /**
- * Readline over a proxy stream whose writes can be suppressed, so a typed
- * password never reaches the terminal or a scrollback buffer.
+ * Piped input is drained once and served line by line.
+ *
+ * Creating a readline per prompt looks tidier but silently loses data: each one
+ * buffers a chunk of stdin and throws away whatever it did not use, so the
+ * second prompt reads nothing.
  */
-let muted = false;
+let pipedLines: string[] | null = null;
 
-const output = new Writable({
-  write(chunk, _encoding, callback) {
-    if (!muted) process.stdout.write(chunk);
-    callback();
-  },
-});
-
-const rl = createInterface({ input: process.stdin, output, terminal: true });
-
-function ask(question: string): Promise<string> {
-  return new Promise((resolve) => rl.question(question, resolve));
+async function nextPipedLine(): Promise<string> {
+  if (pipedLines === null) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    pipedLines = Buffer.concat(chunks).toString("utf8").split(/\r?\n/);
+  }
+  const line = pipedLines.shift();
+  if (line === undefined) {
+    // Without this the prompt loop would spin forever on empty answers.
+    throw new Error(
+      "Ran out of piped input. Supply an answer for every prompt, or set " +
+        "ADMIN_EMAIL / ADMIN_NAME / ADMIN_PASSWORD and pass --yes.",
+    );
+  }
+  return line;
 }
 
-async function askHidden(question: string): Promise<string> {
-  process.stdout.write(question);
-  muted = true;
-  try {
-    const answer = await ask("");
-    return answer;
-  } finally {
-    muted = false;
-    process.stdout.write("\n");
+/**
+ * One readline for the whole session, closed before the first password prompt.
+ *
+ * It cannot coexist with the raw-mode read below — both would consume the same
+ * 'data' events — and nothing after the password needs line editing.
+ */
+let rl: ReturnType<typeof createInterface> | null = null;
+
+function closeReadline() {
+  rl?.close();
+  rl = null;
+}
+
+function ask(question: string, mask = false): Promise<string> {
+  if (!interactive) {
+    process.stdout.write(question);
+    return nextPipedLine().then((line) => {
+      // Echo so a scripted run stays readable — but never the password, which
+      // would otherwise land in whatever log captured the output.
+      process.stdout.write(`${mask ? "*".repeat(line.length) : line}\n`);
+      return line;
+    });
   }
+  rl ??= createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl!.question(question, resolve));
+}
+
+/**
+ * Reads a password, echoing one `*` per character.
+ *
+ * The masking matters for more than tidiness: a prompt that echoes nothing at
+ * all is indistinguishable from a frozen terminal, and the natural response is
+ * to assume it is broken and kill it.
+ */
+function askHidden(question: string): Promise<string> {
+  const stdin = process.stdin;
+
+  // Piped or redirected input has no raw mode; fall back to a plain read.
+  if (!interactive) return ask(question, true);
+
+  // Hand stdin over from readline before taking it in raw mode.
+  closeReadline();
+
+  return new Promise((resolve, reject) => {
+    process.stdout.write(question);
+
+    const chars: string[] = [];
+    const wasRaw = stdin.isRaw;
+
+    const cleanup = () => {
+      stdin.removeListener("data", onData);
+      stdin.setRawMode(wasRaw);
+      stdin.pause();
+      process.stdout.write("\n");
+    };
+
+    const onData = (key: string) => {
+      for (const ch of key) {
+        switch (ch) {
+          case "\r":
+          case "\n":
+            cleanup();
+            return resolve(chars.join(""));
+          case "\u0003": // Ctrl+C
+            cleanup();
+            return reject(new Error("Cancelled."));
+          case "\u007f": // DEL
+          case "\b":
+            if (chars.length > 0) {
+              chars.pop();
+              // Erase the last asterisk: back up, overwrite, back up again.
+              process.stdout.write("\b \b");
+            }
+            break;
+          default:
+            // Ignore control characters such as arrow-key escape sequences,
+            // which would otherwise land in the password as garbage.
+            if (ch >= " ") {
+              chars.push(ch);
+              process.stdout.write("*");
+            }
+        }
+      }
+    };
+
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    stdin.on("data", onData);
+  });
 }
 
 async function askRequired(
   question: string,
-  envValue: string | undefined,
   validate: (value: string) => string | null,
+  options: { envValue?: string | undefined; defaultValue?: string | undefined } = {},
 ): Promise<string> {
+  const { envValue, defaultValue } = options;
+
+  // An environment value skips the prompt outright. A default does not — it is
+  // only what an empty answer falls back to, so the prompt still gets its turn
+  // and the answers stay lined up with a piped script.
   if (envValue !== undefined) {
     const problem = validate(envValue);
     if (problem) throw new Error(problem);
     return envValue;
   }
 
+  const prompt = defaultValue ? `${question.trimEnd()} [${defaultValue}] ` : question;
+
   for (;;) {
-    const answer = (await ask(question)).trim();
+    const raw = (await ask(prompt)).trim();
+    const answer = raw.length === 0 && defaultValue !== undefined ? defaultValue : raw;
     const problem = validate(answer);
     if (!problem) return answer;
     console.log(`  ${problem}`);
@@ -140,7 +236,7 @@ async function main() {
   console.log(`\nDatabase: ${target.replace(/\/\/[^@]*@/, "//***@")}\n`);
 
   const email = (
-    await askRequired("Email:    ", process.env.ADMIN_EMAIL, validateEmail)
+    await askRequired("Email:    ", validateEmail, { envValue: process.env.ADMIN_EMAIL })
   )
     .trim()
     .toLowerCase();
@@ -166,11 +262,10 @@ async function main() {
     }
   }
 
-  const displayName = await askRequired(
-    "Name:     ",
-    process.env.ADMIN_NAME ?? existing?.displayName,
-    validateName,
-  );
+  const displayName = await askRequired("Name:     ", validateName, {
+    envValue: process.env.ADMIN_NAME,
+    defaultValue: existing?.displayName,
+  });
 
   let password: string;
   if (process.env.ADMIN_PASSWORD !== undefined) {
@@ -243,6 +338,10 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    rl.close();
+    // Raw mode is restored by askHidden's own cleanup, but a crash mid-prompt
+    // would otherwise leave the terminal swallowing keystrokes.
+    if (process.stdin.isTTY && process.stdin.isRaw) process.stdin.setRawMode(false);
+    closeReadline();
+    process.stdin.pause();
     await prisma.$disconnect();
   });

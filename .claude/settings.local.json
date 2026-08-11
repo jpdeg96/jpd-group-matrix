@@ -109,7 +109,11 @@
       "WebFetch(domain:render.com)",
       "WebSearch",
       "PowerShell($procs = Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt \\(Get-Date\\).AddMinutes\\(-10\\) }; $procs | Select-Object Id, @{n='RSS_MB';e={[math]::Round\\($_.WorkingSet64/1MB,1\\)}}, @{n='CPU_s';e={[math]::Round\\($_.CPU,1\\)}} | Format-Table -AutoSize; \"TOTAL_AFTER_LOAD_MB: \" + [math]::Round\\(\\(\\($procs | Measure-Object WorkingSet64 -Sum\\).Sum\\)/1MB,1\\))",
-      "Bash(gh --version)"
+      "Bash(gh --version)",
+      "Bash(sed -n \"/^model Event /,/^}/p\" prisma/schema.prisma)",
+      "Bash(sed -n \"/^model EventNote/,/^}/p\" prisma/schema.prisma)",
+      "Bash(sed -n \"/^model AuditLog/,/^}/p\" prisma/schema.prisma)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.StartTime -gt \\(Get-Date\\).AddMinutes\\(-5\\) } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }; \"cleaned up stray node processes\")"
     ]
   }
 }
