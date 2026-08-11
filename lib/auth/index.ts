@@ -126,11 +126,27 @@ export const authConfig: NextAuthConfig = {
       if (account?.provider !== "google") return true;
 
       const email = user.email?.toLowerCase();
-      if (!email) return false;
+
+      /**
+       * Every refusal below looks identical from the browser — a bounce back to
+       * /sign-in — and the four causes need completely different fixes. Naming
+       * the reason in the server log is what makes this operable; without it the
+       * only recourse is guessing from the outside.
+       */
+      const refuse = (reason: string): false => {
+        console.warn(
+          `[auth] Google sign-in refused for ${email ?? "(no email supplied)"}: ${reason}`,
+        );
+        return false;
+      };
+
+      if (!email) return refuse("Google returned no email address");
 
       // Google must have verified the address. Without this check a Google
       // account could assert an address it does not control.
-      if (profile && profile.email_verified === false) return false;
+      if (profile && profile.email_verified === false) {
+        return refuse("Google has not verified this address");
+      }
 
       // Server-side Workspace enforcement. The `hd` claim on the verified
       // profile is authoritative; the request parameter of the same name is not.
@@ -143,13 +159,21 @@ export const authConfig: NextAuthConfig = {
           hostedDomain !== googleWorkspaceDomain &&
           emailDomain !== googleWorkspaceDomain
         ) {
-          return false;
+          return refuse(
+            `domain "${hostedDomain ?? emailDomain ?? "unknown"}" does not match ` +
+              `AUTH_GOOGLE_WORKSPACE_DOMAIN "${googleWorkspaceDomain}"`,
+          );
         }
       }
 
       // Sign-in never self-registers: an active account must already exist.
       const existing = await prisma.user.findUnique({ where: { email } });
-      return Boolean(existing?.active);
+      if (!existing) {
+        return refuse("no user row with this email — add them under Users first");
+      }
+      if (!existing.active) return refuse("the account exists but is deactivated");
+
+      return true;
     },
 
     async jwt({ token, user }) {
