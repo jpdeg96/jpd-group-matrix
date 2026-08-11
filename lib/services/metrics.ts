@@ -1,0 +1,269 @@
+/**
+ * User metrics.
+ *
+ * Aggregates the work each person actually did — completions, review stages,
+ * marketplace checks, audits, notes — over a chosen period, plus the type split
+ * and a daily activity series.
+ *
+ * Every count is attributed by the *actor* column (`completedById`,
+ * `doneById`, …), not by who the row is assigned to. Assignment says who was
+ * meant to do it; these columns say who did.
+ */
+
+import { prisma } from "@/lib/db/prisma";
+import { dbDateFromPlainDate, type PlainDate } from "@/lib/date/plain-date";
+import {
+  daysInRange,
+  resolveMetricsPeriod,
+  startOfMonth,
+  type MetricsPeriod,
+  type PeriodRange,
+} from "@/lib/domain/metrics-period";
+import { startOfWeek } from "@/lib/domain/review-schedule";
+import { businessToday, getSettings } from "./settings";
+import { getHoursByUser, startOfBusinessDay, type WeeklyHoursResult } from "./clockify";
+
+export interface UserMetricRow {
+  userId: string;
+  displayName: string;
+  color: string;
+  role: string;
+  active: boolean;
+  eventsCompleted: number;
+  stagesDone: number;
+  seatGeekChecks: number;
+  audits: number;
+  notes: number;
+  /** Everything above, for ranking and the "share of work" read. */
+  total: number;
+}
+
+export interface TypeSliceRow {
+  typeId: string;
+  name: string;
+  emoji: string | null;
+  count: number;
+  /** Stable slot index, assigned by the type's own order — never by rank. */
+  slot: number;
+}
+
+export interface DailyPoint {
+  date: PlainDate;
+  count: number;
+}
+
+export interface MetricsResult {
+  period: MetricsPeriod;
+  label: string;
+  from: PlainDate | null;
+  to: PlainDate;
+  totals: {
+    eventsCompleted: number;
+    stagesDone: number;
+    activePeople: number;
+    /** Mean completions per calendar day in the period. */
+    perDay: number;
+  };
+  users: UserMetricRow[];
+  types: TypeSliceRow[];
+  daily: DailyPoint[];
+  /** Hours logged this week. Independent of the period filter, by request. */
+  hours: WeeklyHoursResult & { weekStart: PlainDate };
+}
+
+/** Converts an inclusive date range into the instant range the columns need. */
+async function toInstantRange(range: PeriodRange): Promise<{ gte?: Date; lte: Date }> {
+  const settings = await getSettings();
+  const zone = settings.timeZone;
+
+  // End of `to` is the start of the following day, exclusive — expressed here as
+  // an inclusive `lte` one millisecond earlier so every query reads the same.
+  const endExclusive = startOfBusinessDay(range.to, zone);
+  const lte = new Date(endExclusive.getTime() + 86_400_000 - 1);
+
+  return range.from
+    ? { gte: startOfBusinessDay(range.from, zone), lte }
+    : { lte };
+}
+
+export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> {
+  const today = await businessToday();
+  const range = resolveMetricsPeriod(period, today);
+  const window = await toInstantRange(range);
+
+  const [users, types, events, stages, notes] = await Promise.all([
+    prisma.user.findMany({
+      select: {
+        id: true,
+        displayName: true,
+        color: true,
+        role: true,
+        active: true,
+      },
+      orderBy: { displayName: "asc" },
+    }),
+    prisma.eventType.findMany({
+      select: { id: true, name: true, emoji: true, sortOrder: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
+    // Completions in the window, with everything the per-user and per-type
+    // aggregations need, fetched once rather than as a query per person.
+    prisma.event.findMany({
+      where: { completedAt: window },
+      select: {
+        completedAt: true,
+        completedById: true,
+        eventTypeId: true,
+        seatGeekById: true,
+        seatGeekCheckedAt: true,
+        auditedById: true,
+        auditedAt: true,
+      },
+    }),
+    prisma.reviewStage.findMany({
+      where: { status: "DONE", doneAt: window },
+      select: { doneById: true },
+    }),
+    prisma.eventNote.findMany({
+      where: { createdAt: window },
+      select: { authorId: true },
+    }),
+  ]);
+
+  const blank = () => ({
+    eventsCompleted: 0,
+    stagesDone: 0,
+    seatGeekChecks: 0,
+    audits: 0,
+    notes: 0,
+  });
+
+  const tally = new Map<string, ReturnType<typeof blank>>();
+  const bump = (id: string | null, key: keyof ReturnType<typeof blank>) => {
+    if (!id) return;
+    const row = tally.get(id) ?? blank();
+    row[key] += 1;
+    tally.set(id, row);
+  };
+
+  for (const event of events) {
+    bump(event.completedById, "eventsCompleted");
+    // SeatGeek and audit checks are counted only when they happened inside the
+    // window too — an old check on a newly completed event is not this period's
+    // work.
+    if (event.seatGeekCheckedAt && inWindow(event.seatGeekCheckedAt, window)) {
+      bump(event.seatGeekById, "seatGeekChecks");
+    }
+    if (event.auditedAt && inWindow(event.auditedAt, window)) {
+      bump(event.auditedById, "audits");
+    }
+  }
+
+  for (const stage of stages) bump(stage.doneById, "stagesDone");
+  for (const note of notes) bump(note.authorId, "notes");
+
+  const userRows: UserMetricRow[] = users
+    .map((user) => {
+      const counts = tally.get(user.id) ?? blank();
+      const total =
+        counts.eventsCompleted +
+        counts.stagesDone +
+        counts.seatGeekChecks +
+        counts.audits +
+        counts.notes;
+
+      return {
+        userId: user.id,
+        displayName: user.displayName,
+        color: user.color,
+        role: user.role,
+        active: user.active,
+        ...counts,
+        total,
+      };
+    })
+    // Deactivated people with no activity in the window are noise; keep them
+    // only when they actually did something in it.
+    .filter((row) => row.active || row.total > 0)
+    .sort((a, b) => b.eventsCompleted - a.eventsCompleted || b.total - a.total);
+
+  const typeCounts = new Map<string, number>();
+  for (const event of events) {
+    typeCounts.set(event.eventTypeId, (typeCounts.get(event.eventTypeId) ?? 0) + 1);
+  }
+
+  // Slot follows the type's own stable order, never its count — so filtering or
+  // a quiet week never repaints the chart.
+  const typeRows: TypeSliceRow[] = types
+    .map((type, index) => ({
+      typeId: type.id,
+      name: type.name,
+      emoji: type.emoji,
+      count: typeCounts.get(type.id) ?? 0,
+      slot: index,
+    }))
+    .filter((row) => row.count > 0);
+
+  const dayKeys = daysInRange(range);
+  const dailyCounts = new Map<string, number>(dayKeys.map((day) => [day, 0]));
+  const settings = await getSettings();
+
+  for (const event of events) {
+    if (!event.completedAt) continue;
+    const day = businessDateOf(event.completedAt, settings.timeZone);
+    if (dailyCounts.has(day)) dailyCounts.set(day, (dailyCounts.get(day) ?? 0) + 1);
+  }
+
+  const daily: DailyPoint[] = dayKeys.map((day) => ({
+    date: day,
+    count: dailyCounts.get(day) ?? 0,
+  }));
+
+  // Hours are always "this week" regardless of the period filter — it is a
+  // staffing question, not a reporting-window one.
+  const weekStart = startOfWeek(today);
+  const hours = await getHoursByUser(
+    startOfBusinessDay(weekStart, settings.timeZone),
+    new Date(),
+  );
+
+  const spanDays = dayKeys.length || 1;
+
+  return {
+    period,
+    label: range.label,
+    from: range.from,
+    to: range.to,
+    totals: {
+      eventsCompleted: events.length,
+      stagesDone: stages.length,
+      activePeople: userRows.filter((row) => row.total > 0).length,
+      perDay: Math.round((events.length / spanDays) * 10) / 10,
+    },
+    users: userRows,
+    types: typeRows,
+    daily,
+    hours: { ...hours, weekStart },
+  };
+}
+
+function inWindow(value: Date, window: { gte?: Date; lte: Date }): boolean {
+  if (value > window.lte) return false;
+  return window.gte ? value >= window.gte : true;
+}
+
+/** The business-timezone calendar date an instant falls on. */
+function businessDateOf(value: Date, timeZone: string): PlainDate {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}` as PlainDate;
+}
+
+/** Re-exported so the page can render the period picker without a second import. */
+export { startOfMonth };

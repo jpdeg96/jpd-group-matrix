@@ -1,0 +1,56 @@
+{
+  "name": "phantomchecker-events",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PhantomChecker Events — internal event-review workflow system",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:reset": "prisma migrate reset",
+    "db:seed": "tsx prisma/seed.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
+    "db:studio": "prisma studio",
+    "maintenance": "tsx scripts/maintenance.ts",
+    "scheduler": "tsx scripts/scheduler.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:all": "npm run test && npm run test:integration"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.16.2",
+    "bcryptjs": "3.0.2",
+    "clsx": "2.1.1",
+    "next": "15.5.23",
+    "next-auth": "5.0.0-beta.29",
+    "node-cron": "3.0.3",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "tailwind-merge": "3.3.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.13",
+    "@types/node": "22.15.3",
+    "@types/node-cron": "3.0.11",
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "dotenv": "16.6.1",
+    "prisma": "6.16.2",
+    "tailwindcss": "4.1.13",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "3.2.4"
+  }
+}

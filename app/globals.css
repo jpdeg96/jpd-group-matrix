@@ -1,0 +1,234 @@
+@import "tailwindcss";
+
+/**
+ * JPD Group Matrix — design tokens.
+ *
+ * A working queue, not a dashboard. Density is tuned for scanning hundreds of
+ * rows, and color is reserved for things that carry meaning: urgency,
+ * completion, and who is working on what.
+ *
+ * Three themes, all driven by the same token names so no component knows which
+ * one is active. `data-theme` on <html> is set before first paint by an inline
+ * script in the layout, which is what prevents a flash of the wrong theme.
+ */
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+:root,
+:root[data-theme="light"] {
+  --canvas: oklch(0.985 0.002 250);
+  --surface: oklch(1 0 0);
+  --surface-raised: oklch(1 0 0);
+  --line: oklch(0.916 0.004 250);
+  --line-strong: oklch(0.86 0.006 250);
+
+  --ink: oklch(0.24 0.012 255);
+  --ink-muted: oklch(0.52 0.012 255);
+  --ink-subtle: oklch(0.66 0.01 255);
+
+  --accent: oklch(0.53 0.15 255);
+  --accent-soft: oklch(0.955 0.02 255);
+  --accent-contrast: oklch(1 0 0);
+
+  --danger: oklch(0.55 0.19 25);
+  --danger-soft: oklch(0.96 0.03 25);
+
+  --warn: oklch(0.62 0.15 65);
+  --warn-soft: oklch(0.96 0.04 75);
+
+  --success: oklch(0.55 0.13 155);
+  --success-soft: oklch(0.95 0.04 155);
+
+  --live: oklch(0.62 0.2 145);
+  --live-soft: oklch(0.95 0.06 145);
+
+  --shadow-color: 220 40% 20%;
+}
+
+:root[data-theme="dark"] {
+  --canvas: oklch(0.19 0.012 260);
+  --surface: oklch(0.23 0.014 260);
+  --surface-raised: oklch(0.27 0.016 260);
+  --line: oklch(0.32 0.016 260);
+  --line-strong: oklch(0.4 0.018 260);
+
+  --ink: oklch(0.94 0.006 260);
+  --ink-muted: oklch(0.74 0.012 260);
+  --ink-subtle: oklch(0.6 0.014 260);
+
+  --accent: oklch(0.72 0.14 255);
+  --accent-soft: oklch(0.3 0.05 255);
+  --accent-contrast: oklch(0.16 0.02 260);
+
+  --danger: oklch(0.7 0.17 25);
+  --danger-soft: oklch(0.31 0.07 25);
+
+  --warn: oklch(0.78 0.14 75);
+  --warn-soft: oklch(0.32 0.06 75);
+
+  --success: oklch(0.72 0.14 155);
+  --success-soft: oklch(0.3 0.06 155);
+
+  --live: oklch(0.76 0.19 145);
+  --live-soft: oklch(0.3 0.08 145);
+
+  --shadow-color: 260 60% 4%;
+}
+
+/* Blossom — warm and pink, but still an operations tool: the same density and
+   the same contrast discipline, just a softer palette. */
+:root[data-theme="blossom"] {
+  --canvas: oklch(0.975 0.014 350);
+  --surface: oklch(0.995 0.005 350);
+  --surface-raised: oklch(1 0 0);
+  --line: oklch(0.9 0.028 350);
+  --line-strong: oklch(0.84 0.045 350);
+
+  --ink: oklch(0.29 0.055 350);
+  --ink-muted: oklch(0.52 0.05 350);
+  --ink-subtle: oklch(0.65 0.045 350);
+
+  --accent: oklch(0.58 0.19 350);
+  --accent-soft: oklch(0.955 0.032 350);
+  --accent-contrast: oklch(1 0 0);
+
+  --danger: oklch(0.55 0.2 15);
+  --danger-soft: oklch(0.96 0.035 15);
+
+  --warn: oklch(0.66 0.14 55);
+  --warn-soft: oklch(0.96 0.04 60);
+
+  --success: oklch(0.58 0.13 165);
+  --success-soft: oklch(0.95 0.04 165);
+
+  --live: oklch(0.62 0.21 330);
+  --live-soft: oklch(0.95 0.06 330);
+
+  --shadow-color: 340 50% 30%;
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular figures keep dates and times aligned down a column. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: 3px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+/**
+ * "In progress" — the one deliberately loud thing in the interface.
+ *
+ * A row someone is actively working on gets a moving sheen and a pulsing dot.
+ * Everything else here is restrained precisely so that this reads instantly
+ * from across a room.
+ */
+@keyframes jpd-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes jpd-live-sweep {
+  0% {
+    background-position: -180% 0;
+  }
+  100% {
+    background-position: 280% 0;
+  }
+}
+
+.jpd-live-row {
+  position: relative;
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in oklch, var(--live) 16%, transparent) 48%,
+    transparent 76%
+  );
+  background-size: 220% 100%;
+  animation: jpd-live-sweep 2.6s linear infinite;
+  box-shadow: inset 3px 0 0 var(--live);
+}
+
+.jpd-live-dot {
+  animation: jpd-live-pulse 1.4s ease-in-out infinite;
+}
+
+/* Respect users who have asked for less motion: keep the color and the inset
+   rule, drop the movement entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .jpd-live-row {
+    animation: none;
+    background-image: none;
+    background-color: color-mix(in oklch, var(--live) 10%, transparent);
+  }
+
+  .jpd-live-dot {
+    animation: none;
+  }
+}

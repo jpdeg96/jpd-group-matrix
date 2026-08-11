@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: phantomchecker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: phantom
+      POSTGRES_PASSWORD: phantom
+      POSTGRES_DB: phantomchecker
+      # The container clock is UTC on purpose. All business-date logic runs in
+      # application code against America/Chicago; the database never decides
+      # what "today" means.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - phantomchecker-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U phantom -d phantomchecker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  phantomchecker-pgdata:
