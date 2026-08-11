@@ -18,6 +18,7 @@
  */
 
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { auth, type SessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
 import { forbidden, unauthenticated } from "@/lib/errors";
@@ -128,6 +129,23 @@ export async function requireRole(minimum: UserRoleValue): Promise<ActorContext>
 export const requireUser = requireActor;
 export const requireManager = () => requireRole("MANAGER");
 export const requireAdmin = () => requireRole("ADMIN");
+
+/**
+ * The page-component counterpart to `requireActor`: it redirects instead of
+ * throwing.
+ *
+ * The distinction is not stylistic. A route handler must throw, so the error
+ * handler can answer 401. A page must not: layouts and pages render
+ * *concurrently* in the App Router, so the authenticated shell's own
+ * `redirect("/sign-in")` does not stop a page body from running underneath it.
+ * A page that throws therefore turns an ordinary signed-out visit — an expired
+ * session, a bookmarked URL — into a 500.
+ */
+export async function requirePageActor(): Promise<ActorContext> {
+  const actor = await getActorContext();
+  if (!actor) redirect("/sign-in");
+  return actor;
+}
 
 /**
  * Administrator check against the *real* account, ignoring impersonation.

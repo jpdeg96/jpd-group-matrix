@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requirePageActor } from "@/lib/auth/guards";
 import { getC1Stats, listC1Rows } from "@/lib/services/stages";
 import { listSelectableUsers } from "@/lib/services/users";
 import { listActiveEventTypes } from "@/lib/services/event-types";
@@ -8,7 +8,7 @@ import { C1View } from "@/components/c1/c1-view";
 export const dynamic = "force-dynamic";
 
 export default async function C1Page() {
-  const actor = await requireUser();
+  const actor = await requirePageActor();
 
   const [users, types, settings, today] = await Promise.all([
     listSelectableUsers(),

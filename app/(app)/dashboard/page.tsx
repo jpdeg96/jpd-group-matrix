@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth/guards";
+import { requirePageActor } from "@/lib/auth/guards";
 import { getDashboardStats, listDashboardEvents } from "@/lib/services/events";
 import { latestNotesByEvent } from "@/lib/services/notes";
 import { listSelectableUsers } from "@/lib/services/users";
@@ -9,7 +9,7 @@ import { DashboardView } from "@/components/dashboard/dashboard-view";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const actor = await requireUser();
+  const actor = await requirePageActor();
 
   const [events, users, types, settings, today] = await Promise.all([
     // Promoted events stay on the dashboard as the permanent record. They are
