@@ -5,6 +5,7 @@ import { api } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
 import { formatDurationClock, formatDurationShort } from "@/lib/clockify/duration";
 import { formatBusinessTime } from "@/lib/date/business-time";
+import { useClockNotifications } from "./use-clock-notifications";
 
 interface ClockifySummary {
   enabled: boolean;
@@ -25,8 +26,20 @@ interface ClockifySummary {
   }>;
 }
 
-/** How often we re-ask Clockify. Deliberately slow — this is ambient info. */
-const REFRESH_MS = 60_000;
+/**
+ * How often we re-ask Clockify.
+ *
+ * This is also the notification latency: clocking in happens in Clockify, so a
+ * transition can only be noticed on the next poll. Sixty seconds was fine while
+ * the chip was purely ambient and reads badly once it is announcing things, so
+ * it is halved.
+ *
+ * The cost is real but small: each poll asks Clockify once for the viewer and
+ * once per other linked person, *per open tab*. At a handful of people that is
+ * far below Clockify's rate limit; it would need rethinking as a shared
+ * server-side poll long before this team outgrew it.
+ */
+const REFRESH_MS = 30_000;
 
 /**
  * Clockify time chip.
@@ -43,6 +56,11 @@ export function ClockifyWidget() {
   const [tick, setTick] = React.useState(0);
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Announces clock-in / clock-out as toasts, for the viewer and for everyone
+  // else. Driven by the same poll that feeds the chip, so it costs no extra
+  // requests.
+  useClockNotifications(summary);
 
   React.useEffect(() => {
     let cancelled = false;
