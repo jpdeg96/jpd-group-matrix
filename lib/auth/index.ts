@@ -32,6 +32,7 @@ import bcrypt from "bcryptjs";
 
 import { prisma } from "@/lib/db/prisma";
 import { signInSchema } from "@/lib/validation/schemas";
+import { googleAdmission, resolveAccountForSignIn } from "./account-lookup";
 
 export type SessionRole = "ADMIN" | "MANAGER" | "USER";
 
@@ -126,72 +127,56 @@ export const authConfig: NextAuthConfig = {
       if (account?.provider !== "google") return true;
 
       const email = user.email?.toLowerCase();
+      const existing = await resolveAccountForSignIn(email);
 
-      /**
-       * Every refusal below looks identical from the browser — a bounce back to
-       * /sign-in — and the four causes need completely different fixes. Naming
-       * the reason in the server log is what makes this operable; without it the
-       * only recourse is guessing from the outside.
-       */
-      const refuse = (reason: string): false => {
+      const verdict = googleAdmission({
+        email,
+        emailVerified: (profile as { email_verified?: boolean } | undefined)?.email_verified,
+        hostedDomain: (profile as { hd?: string } | undefined)?.hd,
+        requiredDomain: googleWorkspaceDomain,
+        account: existing,
+      });
+
+      if (!verdict.allowed) {
+        // From the browser every refusal looks identical — a bounce back to
+        // /sign-in — and the causes need completely different fixes. Naming the
+        // reason in the server log is what makes this operable.
         console.warn(
-          `[auth] Google sign-in refused for ${email ?? "(no email supplied)"}: ${reason}`,
+          `[auth] Google sign-in refused for ${email ?? "(no email supplied)"}: ${verdict.reason}`,
         );
-        return false;
-      };
-
-      if (!email) return refuse("Google returned no email address");
-
-      // Google must have verified the address. Without this check a Google
-      // account could assert an address it does not control.
-      if (profile && profile.email_verified === false) {
-        return refuse("Google has not verified this address");
       }
 
-      // Server-side Workspace enforcement. The `hd` claim on the verified
-      // profile is authoritative; the request parameter of the same name is not.
-      if (googleWorkspaceDomain) {
-        const hostedDomain = (profile as { hd?: string } | undefined)?.hd
-          ?.toLowerCase();
-        const emailDomain = email.split("@")[1];
-
-        if (
-          hostedDomain !== googleWorkspaceDomain &&
-          emailDomain !== googleWorkspaceDomain
-        ) {
-          return refuse(
-            `domain "${hostedDomain ?? emailDomain ?? "unknown"}" does not match ` +
-              `AUTH_GOOGLE_WORKSPACE_DOMAIN "${googleWorkspaceDomain}"`,
-          );
-        }
-      }
-
-      // Sign-in never self-registers: an active account must already exist.
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (!existing) {
-        return refuse("no user row with this email — add them under Users first");
-      }
-      if (!existing.active) return refuse("the account exists but is deactivated");
-
-      return true;
+      return verdict.allowed;
     },
 
     async jwt({ token, user }) {
-      // On initial sign-in resolve the canonical user row; `user.id` is absent
-      // for Google, so fall back to matching on email.
+      // On initial sign-in, resolve the canonical user row **by email**.
+      //
+      // Not by `user.id`. For Credentials that field holds this database's own
+      // row id, but for an OAuth provider Auth.js fills it from the provider's
+      // profile — for Google, the numeric `sub`. Querying a `@db.Uuid` column
+      // with that does not merely fail to match, it throws
+      // ("Error creating UUID, invalid length"), which takes down the whole
+      // sign-in *after* the signIn callback has already approved it. Email is
+      // the identity this application keys on, both providers supply it, and
+      // `signIn` above has already proved an active row exists for it.
       if (user) {
         const email = user.email?.toLowerCase();
-        const record = user.id
-          ? await prisma.user.findUnique({ where: { id: user.id } })
-          : email
-            ? await prisma.user.findUnique({ where: { email } })
-            : null;
+        const record = await resolveAccountForSignIn(email);
 
         if (record) {
           token.sub = record.id;
           token.email = record.email;
           token.name = record.displayName;
           token.role = record.role;
+        } else {
+          // Leaving the token half-built would mint a session whose id is the
+          // provider's subject — accepted here, then rejected by every guard.
+          console.warn(
+            `[auth] could not resolve a user row for ${email ?? "(no email)"}; ` +
+              "the session would not have been usable.",
+          );
+          throw new Error("Your account could not be resolved. Contact an administrator.");
         }
       }
       return token;
