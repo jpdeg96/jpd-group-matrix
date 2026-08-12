@@ -22,7 +22,7 @@ export default async function SignInPage({
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <div className="mb-3 flex justify-center">
-            <Logo src={resolveLogoSrc()} height={44} alt="JPD Group" />
+            <Logo src={resolveLogoSrc()} height={64} alt="JPD Group" />
           </div>
           <h1 className="text-[17px] font-semibold tracking-tight">
             JPD Group Matrix

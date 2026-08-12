@@ -73,7 +73,7 @@ export function AppNav({
           className="flex shrink-0 items-center gap-2 whitespace-nowrap"
           title={siteName}
         >
-          <Logo src={logoSrc} height={26} alt={siteName} />
+          <Logo src={logoSrc} height={36} alt={siteName} />
         </Link>
 
         <nav className="flex items-center gap-0.5 overflow-x-auto">
