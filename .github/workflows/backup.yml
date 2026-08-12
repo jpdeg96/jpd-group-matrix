@@ -98,8 +98,14 @@ jobs:
           echo "OK: ${DUMP_FILE} — $(wc -c < "${DUMP_FILE}") bytes, $(wc -l < toc.txt) archive entries"
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        # v7 runs on node24. v4 declares node20, which the runners now force
+        # onto 24 anyway and warn about; v5 was only preliminary support and
+        # still defaulted to node20, so it would not have silenced anything.
+        uses: actions/upload-artifact@v7
         with:
+          # The dump is already compressed by pg_dump --format=custom, so
+          # zipping it again costs CPU and saves nothing.
+          compression-level: 0
           # Dated so the artifact list reads chronologically; the run number
           # keeps a same-day re-run from colliding with the scheduled one.
           name: matrix-backup-${{ github.run_number }}-${{ env.DUMP_FILE }}
