@@ -14,8 +14,6 @@ export interface PresenceEntry {
 
 export type PresenceContext = "DASHBOARD" | "C1";
 
-/** How often we tell the server we are still here. */
-const HEARTBEAT_MS = 30_000;
 /** Polling cadence when SSE is unavailable. */
 const POLL_MS = 5_000;
 
@@ -35,8 +33,13 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
   const [entries, setEntries] = React.useState<PresenceEntry[]>([]);
   const [pendingEventId, setPendingEventId] = React.useState<string | null>(null);
 
-  // Held in a ref so the heartbeat effect does not restart on every change.
-  const claimedRef = React.useRef<Set<string>>(new Set());
+  /**
+   * Notifies the shell that this user's own claims changed, so the persistent
+   * banner updates on the click rather than on its next poll.
+   */
+  const announce = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent("jpd:presence-changed"));
+  }, []);
 
   /* ---------------------------------------------------------------------- */
   /* Receiving updates                                                       */
@@ -101,35 +104,20 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
   /* Publishing our own presence                                             */
   /* ---------------------------------------------------------------------- */
 
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      if (claimedRef.current.size === 0) return;
-      void api
-        .post("/api/presence", { context, action: "HEARTBEAT" })
-        .catch(() => undefined);
-    }, HEARTBEAT_MS);
-
-    return () => clearInterval(timer);
-  }, [context]);
-
-  // Release claims when the tab closes. `sendBeacon` survives unload, where a
-  // normal fetch would be cancelled mid-flight.
-  React.useEffect(() => {
-    const release = () => {
-      if (claimedRef.current.size === 0) return;
-      const body = JSON.stringify({ context, action: "CLEAR" });
-      navigator.sendBeacon?.(
-        "/api/presence",
-        new Blob([body], { type: "application/json" }),
-      );
-    };
-
-    window.addEventListener("pagehide", release);
-    return () => {
-      window.removeEventListener("pagehide", release);
-      release();
-    };
-  }, [context]);
+  /*
+   * No heartbeat and no release here, deliberately.
+   *
+   * Both used to live in this hook, which unmounts the moment you navigate from
+   * the Dashboard to any other screen — and its cleanup sent a CLEAR, so simply
+   * walking to C1 silently dropped every claim you held. That is the bug behind
+   * "the in-progress state does not stick".
+   *
+   * The heartbeat now lives in the app shell (`WorkingBanner`), which outlives
+   * navigation, and a claim is released only by an explicit stop, by completing
+   * the event, or by the server's heartbeat timeout. Closing the tab is covered
+   * by that timeout rather than by an unload handler: a tab crash and a closed
+   * laptop must behave the same way, and only expiry does that.
+   */
 
   const setWorking = React.useCallback(
     async (eventId: string, working: boolean) => {
@@ -165,10 +153,8 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
           { eventId, context, action: working ? "START" : "STOP" },
         );
 
-        if (working) claimedRef.current.add(eventId);
-        else claimedRef.current.delete(eventId);
-
         setEntries(result.presence);
+        announce();
       } catch {
         // Roll back the optimistic change.
         setEntries((current) =>
@@ -180,7 +166,7 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
         setPendingEventId(null);
       }
     },
-    [context, currentUserId],
+    [context, currentUserId, announce],
   );
 
   const byEvent = React.useMemo(() => {

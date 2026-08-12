@@ -87,6 +87,71 @@ export async function listPresenceFlat(
   return [...byEvent.values()].flat();
 }
 
+export interface MyPresenceEntry {
+  eventId: string;
+  context: PresenceContextValue;
+  startedAt: string;
+  minutesActive: number;
+  /** Enough of the event to name it in a banner on a screen that has no table. */
+  label: string;
+}
+
+/**
+ * Everything *this* user is currently marked as working on, across both screens.
+ *
+ * The per-screen `listPresence` cannot answer this: it is scoped to one context
+ * and returns whoever is on each event. The shell banner needs the inverse —
+ * what am I on, wherever I happen to be looking — so that a claim stays visible
+ * after navigating away from the table that made it.
+ */
+export async function listMyPresence(actor: ActorContext): Promise<MyPresenceEntry[]> {
+  const cutoff = await staleBefore();
+
+  const rows = await prisma.presence.findMany({
+    where: { userId: actor.effective.id, lastHeartbeat: { gte: cutoff } },
+    select: {
+      eventId: true,
+      context: true,
+      startedAt: true,
+      event: {
+        select: {
+          eventDate: true,
+          awayTeam: true,
+          homeTeam: true,
+          venue: true,
+          eventType: { select: { name: true, emoji: true } },
+        },
+      },
+    },
+    orderBy: { startedAt: "asc" },
+  });
+
+  const now = Date.now();
+
+  return rows.map((row) => {
+    const teams = [row.event.awayTeam, row.event.homeTeam].filter(Boolean).join(" @ ");
+    const emoji = row.event.eventType.emoji ? `${row.event.eventType.emoji} ` : "";
+    const label = teams || row.event.venue || `${emoji}${row.event.eventType.name}`;
+
+    return {
+      eventId: row.eventId,
+      context: row.context as PresenceContextValue,
+      startedAt: row.startedAt.toISOString(),
+      minutesActive: Math.floor((now - row.startedAt.getTime()) / 60_000),
+      label: `${emoji}${label}`,
+    };
+  });
+}
+
+/** Refreshes every claim this user holds, on every screen. */
+export async function heartbeatAll(actor: ActorContext): Promise<number> {
+  const result = await prisma.presence.updateMany({
+    where: { userId: actor.effective.id },
+    data: { lastHeartbeat: new Date() },
+  });
+  return result.count;
+}
+
 /**
  * Marks an event as being worked on, or refreshes an existing claim.
  *

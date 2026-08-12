@@ -23,6 +23,9 @@ import { useToast } from "@/components/ui/toast";
 import { NotesCell, type NoteView } from "@/components/notes/notes-cell";
 import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
+import { useCompletionCelebration } from "./use-completion-celebration";
+import { Celebration } from "@/components/ui/celebration";
+import { useTheme } from "@/components/ui/theme";
 import { FlagControl } from "@/components/flags/flag-control";
 import { TicketLinks } from "@/components/tickets/ticket-links";
 import { CompletionHistory } from "./completion-history";
@@ -127,6 +130,8 @@ export function DashboardView({
   }, [initialNotes]);
 
   const presence = usePresence("DASHBOARD", currentUser.id);
+  const { theme } = useTheme();
+  const celebration = useCompletionCelebration(currentUser.id, today);
 
   const activeUsers = React.useMemo(
     () => users.filter((user) => user.active),
@@ -230,6 +235,10 @@ export function DashboardView({
       if (result.promoted) toast.success("Sent to C1 staging.");
       if (result.demoted) toast.success("Returned to open work.");
       if (result.promoted || result.demoted) router.refresh();
+
+      // Only once the completion has actually landed. Celebrating off the
+      // optimistic update would mean confetti for a write that then failed.
+      if (result.promoted) void celebration.check();
     } catch (error) {
       if (previous) {
         const restore = previous;
@@ -329,6 +338,14 @@ export function DashboardView({
 
   return (
     <Card>
+      {celebration.celebrating ? (
+        <Celebration
+          message={celebration.celebrating.message}
+          dark={theme === "dark"}
+          onDone={celebration.dismiss}
+        />
+      ) : null}
+
       <PageHeader
         title="Event Dashboard"
         subtitle={

@@ -434,6 +434,14 @@ export async function updateEvent(
       // Safe because assertSafeToDemote proved no stage work exists.
       await tx.reviewStage.deleteMany({ where: { eventId } });
     }
+
+    if (promoted) {
+      // Completing the event is one of the three things that ends a claim on
+      // it. Released here rather than in the browser so it holds however the
+      // completion arrived — the Dashboard, a second tab, or an import — and
+      // so nobody is left showing as working on something already finished.
+      await tx.presence.deleteMany({ where: { eventId } });
+    }
   });
 
   // Moving an event date leaves its C1 stages pointing at the old schedule.
