@@ -1,0 +1,108 @@
+# Daily database backup.
+#
+# Render's own point-in-time recovery already covers the last few days. This
+# exists for everything that PITR does not: history older than that retention
+# window, and any loss of the Render account itself. It deliberately depends on
+# nothing but GitHub, because a backup system with its own moving parts is a
+# backup system that stops working quietly.
+#
+# Restoring is documented in README.md under "Backups".
+
+name: Database backup
+
+on:
+  schedule:
+    # 07:00 UTC daily. GitHub's scheduler is best-effort and can run late when
+    # it is busy, which is fine for a daily backup and would not be for
+    # anything time-critical.
+    - cron: "0 7 * * *"
+  # Lets you run it on demand from the Actions tab, which is also how you test
+  # it without waiting a day.
+  workflow_dispatch: {}
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+
+    # Pins pg_dump to the server's MAJOR version. pg_dump refuses to dump a
+    # server newer than itself, so this line must be bumped whenever Render
+    # upgrades PostgreSQL's major version — currently 18.
+    #
+    # Debian-based rather than -alpine on purpose: the Alpine image has no
+    # bash, which is the default shell for `run:` steps, and actions/upload
+    # -artifact needs glibc.
+    container: postgres:18
+
+    steps:
+      - name: Dump the database
+        env:
+          # Passed through the environment rather than interpolated into the
+          # command. An inline ${{ secrets.* }} is substituted into the shell
+          # line itself, which puts the password in the runner's process list.
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "BACKUP_DATABASE_URL is not set. Add it under"
+            echo "Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          # Prisma accepts ?schema=public in a connection URL; libpq does not,
+          # and rejects the whole string. Strip it so either form works.
+          CLEAN_URL="$(printf '%s' "$DATABASE_URL" | sed 's/[?&]schema=[^&]*//')"
+
+          STAMP="$(date -u +%F)"
+          FILE="matrix-${STAMP}.dump"
+
+          # --format=custom is compressed and lets pg_restore pull individual
+          # tables out of it, which is what makes partial recovery possible.
+          # Ownership and grants are skipped because the role names differ
+          # between Render and any database you restore into.
+          pg_dump \
+            --format=custom \
+            --no-owner \
+            --no-privileges \
+            --file="${FILE}" \
+            "${CLEAN_URL}"
+
+          echo "DUMP_FILE=${FILE}" >> "${GITHUB_ENV}"
+
+      - name: Verify the archive is readable and complete
+        run: |
+          set -euo pipefail
+
+          # A dump that "succeeded" but holds nothing is worse than one that
+          # failed, because it reports success and is only discovered to be
+          # empty on the day it is needed. Read the archive back and confirm
+          # every table this application depends on is actually inside it.
+          pg_restore --list "${DUMP_FILE}" > toc.txt
+
+          missing=""
+          for table in users events review_stages event_notes event_types audit_logs settings; do
+            if ! grep -q "TABLE DATA public ${table}" toc.txt; then
+              missing="${missing} ${table}"
+            fi
+          done
+
+          if [ -n "${missing}" ]; then
+            echo "Dump is missing table data for:${missing}"
+            exit 1
+          fi
+
+          echo "OK: ${DUMP_FILE} — $(wc -c < "${DUMP_FILE}") bytes, $(wc -l < toc.txt) archive entries"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          # Dated so the artifact list reads chronologically; the run number
+          # keeps a same-day re-run from colliding with the scheduled one.
+          name: matrix-backup-${{ github.run_number }}-${{ env.DUMP_FILE }}
+          path: ${{ env.DUMP_FILE }}
+          retention-days: 90
+          if-no-files-found: error

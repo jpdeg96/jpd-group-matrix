@@ -344,6 +344,55 @@ having the server reject the attempt.
 `event_id`, `offset_days`, stage `status` and every completion timestamp are
 system-controlled; the request schemas drop them before a service sees them.
 
+### Backups
+
+Two layers, because they fail in different ways.
+
+**Render's point-in-time recovery** is automatic on any paid database — 3 days of
+retention on a Hobby workspace, 7 on Pro. It covers "somebody broke this at 9am";
+it does not cover anything older, or the loss of the Render account itself.
+
+**A daily `pg_dump`** runs from
+[`.github/workflows/backup.yml`](.github/workflows/backup.yml) at 07:00 UTC and
+uploads the archive as a GitHub artifact kept for 90 days. It needs one repo
+secret, `BACKUP_DATABASE_URL`, set to the database's **external** connection
+string. Trigger it by hand from the Actions tab to test it.
+
+The job pins `container: postgres:18` to match Render's major version. **`pg_dump`
+refuses to dump a server newer than itself**, so that line has to be bumped
+whenever Render upgrades — and a stale pin fails at backup time, not at restore
+time, which is the good direction to fail in.
+
+It also reads the archive back and asserts that every table is present. A dump
+that succeeds but contains nothing reports success and is only discovered to be
+empty on the day it matters.
+
+#### Restoring
+
+**Never restore over production.** Restore into a scratch database, look at it,
+then decide. Render's one free Postgres is ideal for this — version-matched,
+free, and its 30-day expiry is irrelevant for a throwaway.
+
+```bash
+pg_restore --clean --if-exists --no-owner --no-privileges \
+  --dbname="SCRATCH_DATABASE_URL" matrix-2026-08-11.dump
+```
+
+`--no-owner --no-privileges` matter: role names differ between Render and
+wherever you restore, and without them the restore fails on grants.
+
+Point a local instance at the scratch database, confirm it holds what you expect,
+and only then either swap `DATABASE_URL` or copy the specific rows back. A single
+table can be pulled out on its own with `--table=events`.
+
+> Before reaching for a restore, check the **Audit** screen. Every change records
+> its before and after values, so reverting one mistaken edit is a lookup and a
+> re-edit rather than a database restore. Most "can we go back?" moments are that.
+
+If a connection string carries Prisma's `?schema=public`, strip it — libpq
+rejects the whole URL rather than ignoring the unknown parameter. The workflow
+does this itself.
+
 ### Google Workspace setup
 
 1. Google Cloud Console → **APIs & Services → Credentials → OAuth client ID → Web application**.
