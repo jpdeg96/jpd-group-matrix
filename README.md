@@ -548,6 +548,33 @@ real Workspace domain. Credentials sign-in is exercised throughout.
 
 ---
 
+## Release notes
+
+Every user-visible change gets an entry at the top of
+[`lib/domain/announcements.ts`](lib/domain/announcements.ts). The next time each
+person loads the app they see a "What's new" dialog with anything added since
+they last dismissed it, capped at five with the remainder reported as a count.
+
+**Adding an entry is part of shipping the change, not a follow-up.** The list is
+compiled into the bundle, so the note and the code it describes travel in the
+same commit and the same deploy — which is the only arrangement where they
+cannot drift. A changelog kept anywhere else eventually describes a release that
+failed to go out, or misses one that did.
+
+Two rules:
+
+- **Ids are `YYYY-MM-DD-slug` and are never reused or edited.** Every browser has
+  already recorded an id as "seen"; changing one announces the wrong thing, and
+  reusing one announces nothing.
+- **Write for the person using the app.** "Completed events now stay visible
+  under a new All filter", not "added ALL to the Scope union".
+
+Acknowledgement is stored per browser rather than per account, so a second
+machine means seeing a note twice. That is deliberate — the alternative is a
+table and a migration for something nobody would miss.
+
+---
+
 ## Credits
 
 The favicon and app icons are derived from the **admission ticket** glyph

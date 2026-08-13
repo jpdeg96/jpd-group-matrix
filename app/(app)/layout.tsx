@@ -3,6 +3,7 @@ import { getActorContext } from "@/lib/auth/guards";
 import { AppNav } from "@/components/shell/app-nav";
 import { ImpersonationBanner } from "@/components/shell/impersonation-banner";
 import { WorkingBanner } from "@/components/shell/working-banner";
+import { AnnouncementsDialog } from "@/components/shell/announcements-dialog";
 import { getSettings } from "@/lib/services/settings";
 import { businessToday } from "@/lib/services/settings";
 import { formatPlainDateWithWeekday } from "@/lib/date/plain-date";
@@ -57,6 +58,10 @@ export default async function AppLayout({
       {/* Directly under the nav so a live claim is visible on every screen,
           not only on the table that made it. */}
       <WorkingBanner />
+
+      {/* Keyed to the effective user so viewing-as somebody does not mark the
+          notes read on their behalf. */}
+      <AnnouncementsDialog userId={actor.effective.id} />
 
       <main className="mx-auto w-full max-w-[1800px] px-3 py-4 lg:px-6">
         {children}

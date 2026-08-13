@@ -1,0 +1,140 @@
+/**
+ * What changed, announced to everyone on their next load.
+ *
+ * This list ships *with* the code it describes. That is the whole point: an
+ * announcement stored in the database, or written by hand after the fact, can
+ * describe a release that failed to deploy — or quietly not describe one that
+ * did. Here the two land in the same commit and the same build, so the two
+ * cannot disagree.
+ *
+ * ## Adding an entry
+ *
+ * Put the newest at the TOP. Give it an id that will never be reused —
+ * `YYYY-MM-DD-short-slug` — because that id is what every browser has already
+ * recorded as "seen"; editing an existing id re-announces it to nobody, and
+ * reusing one announces the wrong thing.
+ *
+ * Write the body for the person using the app, not the person who wrote it.
+ * "Completed events now stay visible under a new All filter" — not "added ALL
+ * to the Scope union".
+ */
+
+export type AnnouncementKind = "added" | "changed" | "fixed" | "removed";
+
+export interface Announcement {
+  /** Stable and never reused. `YYYY-MM-DD-slug`. */
+  id: string;
+  /** Shown as-is; the business date the change shipped. */
+  date: string;
+  kind: AnnouncementKind;
+  title: string;
+  body: string;
+}
+
+/**
+ * At most this many are shown at once.
+ *
+ * Somebody returning from two weeks off should get a readable summary, not a
+ * wall they dismiss without reading. Anything beyond the cap is reported as a
+ * count rather than expanded.
+ */
+export const MAX_SHOWN = 5;
+
+/** Newest first. */
+export const ANNOUNCEMENTS: readonly Announcement[] = [
+  {
+    id: "2026-08-13-release-notes",
+    date: "Aug 13, 2026",
+    kind: "added",
+    title: "You'll now be told what changed",
+    body: "When the app is updated, a short note like this one appears the next time you load it. Dismiss it and it won't come back.",
+  },
+  {
+    id: "2026-08-13-all-filter",
+    date: "Aug 13, 2026",
+    kind: "added",
+    title: "An All filter on the Event Dashboard",
+    body: "Shows open and completed work together. Completed rows stay dimmed so you can still tell the two apart at a glance.",
+  },
+  {
+    id: "2026-08-13-live-updates",
+    date: "Aug 13, 2026",
+    kind: "added",
+    title: "The Dashboard and C1 now update live",
+    body: "When somebody ticks a box, promotes an event to C1 or deletes one, it appears on your screen within a couple of seconds. No refresh needed.",
+  },
+  {
+    id: "2026-08-12-in-progress-sticks",
+    date: "Aug 12, 2026",
+    kind: "fixed",
+    title: "In progress no longer disappears when you change screens",
+    body: "Marking yourself as working on an event used to be dropped the moment you left the Dashboard. It now stays until you stop it, complete the event, or it times out — and a green banner shows what you're on from any screen.",
+  },
+  {
+    id: "2026-08-12-daily-milestones",
+    date: "Aug 12, 2026",
+    kind: "added",
+    title: "Daily completion milestones",
+    body: "Hit 30, 45 or 60 completed events inside an eight-hour shift and you'll get a bit of confetti. Timed from Clockify.",
+  },
+  {
+    id: "2026-08-11-clock-notifications",
+    date: "Aug 11, 2026",
+    kind: "added",
+    title: "Clock-in and clock-out notifications",
+    body: "A small toast appears when you clock in or out, and when anyone else on the team does.",
+  },
+];
+
+export interface AnnouncementSelection {
+  /** Newest first, capped at `MAX_SHOWN`. */
+  shown: Announcement[];
+  /** How many further unseen entries were left out of `shown`. */
+  hiddenCount: number;
+}
+
+const NOTHING: AnnouncementSelection = { shown: [], hiddenCount: 0 };
+
+/**
+ * What to show somebody whose last acknowledged entry was `lastSeenId`.
+ *
+ * Position in the list is authoritative rather than the date string, because
+ * the dates are display text and the ordering is a documented invariant of the
+ * array itself.
+ *
+ * An id that is not in the list — localStorage carried over from a build where
+ * an entry was renamed, or simply corrupted — falls back to showing the most
+ * recent entries. Re-showing something once is a far cheaper mistake than going
+ * permanently silent, which nobody would ever notice or report.
+ */
+export function selectAnnouncements(
+  lastSeenId: string | null,
+  announcements: readonly Announcement[] = ANNOUNCEMENTS,
+): AnnouncementSelection {
+  if (announcements.length === 0) return NOTHING;
+
+  if (lastSeenId !== null) {
+    const index = announcements.findIndex((entry) => entry.id === lastSeenId);
+    // Everything above the acknowledged entry is newer, so unseen.
+    if (index === 0) return NOTHING;
+    if (index > 0) {
+      const unseen = announcements.slice(0, index);
+      return {
+        shown: unseen.slice(0, MAX_SHOWN),
+        hiddenCount: Math.max(unseen.length - MAX_SHOWN, 0),
+      };
+    }
+  }
+
+  return {
+    shown: announcements.slice(0, MAX_SHOWN),
+    hiddenCount: Math.max(announcements.length - MAX_SHOWN, 0),
+  };
+}
+
+/** The id to record once a selection has been acknowledged. */
+export function newestAnnouncementId(
+  announcements: readonly Announcement[] = ANNOUNCEMENTS,
+): string | null {
+  return announcements[0]?.id ?? null;
+}
