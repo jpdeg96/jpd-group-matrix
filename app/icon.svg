@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#1f2937"/>
-  <!-- A 2x2 matrix of cells, one highlighted: the dashboard/C1 grid. -->
-  <rect x="7" y="7" width="7" height="7" rx="1.5" fill="#94a3b8"/>
-  <rect x="18" y="7" width="7" height="7" rx="1.5" fill="#94a3b8"/>
-  <rect x="7" y="18" width="7" height="7" rx="1.5" fill="#94a3b8"/>
-  <rect x="18" y="18" width="7" height="7" rx="1.5" fill="#38bdf8"/>
-</svg>

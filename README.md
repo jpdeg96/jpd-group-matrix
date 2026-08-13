@@ -545,3 +545,19 @@ resolves, and real weekly hours render on the Metrics page.
 
 **Not verified:** Google Workspace sign-in, which needs OAuth credentials for a
 real Workspace domain. Credentials sign-in is exercised throughout.
+
+---
+
+## Credits
+
+The favicon and app icons are derived from the **admission ticket** glyph
+(`1f39f`) in [Twemoji](https://github.com/twitter/twemoji), © 2020 Twitter, Inc
+and other contributors, released under
+[CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+That licence requires attribution wherever the artwork is distributed, which
+includes a deployed copy of this application — so this section is a condition of
+use, not a courtesy. Replacing the icons with your own artwork is the way to drop
+it.
+
+`public/jpd-logo.png` is JPD Group's own mark and is not covered by the above.
