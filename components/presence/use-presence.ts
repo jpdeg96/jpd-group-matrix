@@ -34,6 +34,15 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
   const [pendingEventId, setPendingEventId] = React.useState<string | null>(null);
 
   /**
+   * Changes whenever shared data changes anywhere.
+   *
+   * Only ever a signal — never the data itself. Screens react by re-reading
+   * through their normal path, which keeps one route into a table rather than
+   * a second, differently-shaped one that has to be kept in agreement.
+   */
+  const [revision, setRevision] = React.useState<string | null>(null);
+
+  /**
    * Notifies the shell that this user's own claims changed, so the persistent
    * banner updates on the click rather than on its next poll.
    */
@@ -54,10 +63,12 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
       if (pollTimer || cancelled) return;
       const poll = async () => {
         try {
-          const data = await api.get<{ presence: PresenceEntry[] }>(
+          const data = await api.get<{ presence: PresenceEntry[]; revision?: string }>(
             `/api/presence?context=${context}`,
           );
-          if (!cancelled) setEntries(data.presence);
+          if (cancelled) return;
+          setEntries(data.presence);
+          if (data.revision) setRevision(data.revision);
         } catch {
           // Transient — the next tick tries again.
         }
@@ -78,6 +89,18 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
             presence: PresenceEntry[];
           };
           setEntries(payload.presence);
+        } catch {
+          // Ignore a malformed frame rather than tearing down the stream.
+        }
+      });
+
+      source.addEventListener("revision", (event) => {
+        if (cancelled) return;
+        try {
+          const payload = JSON.parse((event as MessageEvent).data) as {
+            revision: string;
+          };
+          setRevision(payload.revision);
         } catch {
           // Ignore a malformed frame rather than tearing down the stream.
         }
@@ -187,5 +210,12 @@ export function usePresence(context: PresenceContext, currentUserId: string) {
     [entries, currentUserId],
   );
 
-  return { byEvent, isWorking, setWorking, pendingEventId, activeCount: entries.length };
+  return {
+    byEvent,
+    isWorking,
+    setWorking,
+    pendingEventId,
+    activeCount: entries.length,
+    revision,
+  };
 }

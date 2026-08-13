@@ -8,6 +8,7 @@ import {
   startPresence,
   stopPresence,
 } from "@/lib/services/presence";
+import { getRevisionToken } from "@/lib/services/data-revision";
 import { presenceActionSchema, validationErrorIfMissingEvent } from "./helpers";
 
 export const runtime = "nodejs";
@@ -19,7 +20,17 @@ export async function GET(request: NextRequest) {
     await requireUser();
     const context =
       request.nextUrl.searchParams.get("context") === "C1" ? "C1" : "DASHBOARD";
-    return jsonOk({ presence: await listPresenceFlat(context) });
+
+    // The revision rides along so a browser that cannot use SSE still learns
+    // that shared data moved. Without it the fallback would keep presence live
+    // but leave the table itself frozen, which is worse than either being
+    // consistently stale.
+    const [presence, revision] = await Promise.all([
+      listPresenceFlat(context),
+      getRevisionToken(),
+    ]);
+
+    return jsonOk({ presence, revision });
   });
 }
 

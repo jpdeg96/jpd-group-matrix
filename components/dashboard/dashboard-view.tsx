@@ -23,6 +23,7 @@ import { useToast } from "@/components/ui/toast";
 import { NotesCell, type NoteView } from "@/components/notes/notes-cell";
 import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
+import { useLiveRefresh } from "@/components/presence/use-live-refresh";
 import { useCompletionCelebration } from "./use-completion-celebration";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
@@ -130,6 +131,10 @@ export function DashboardView({
   }, [initialNotes]);
 
   const presence = usePresence("DASHBOARD", currentUser.id);
+
+  // Somebody else ticked a box, promoted an event or deleted one — re-read.
+  useLiveRefresh(presence.revision, pending.size > 0);
+
   const { theme } = useTheme();
   const celebration = useCompletionCelebration(currentUser.id, today);
 

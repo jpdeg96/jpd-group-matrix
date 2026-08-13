@@ -21,6 +21,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
+import { useLiveRefresh } from "@/components/presence/use-live-refresh";
 import { FlagControl } from "@/components/flags/flag-control";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
@@ -103,6 +104,9 @@ export function C1View({
   }, [initialRows]);
 
   const presence = usePresence("C1", currentUser.id);
+
+  // Somebody else ticked a stage, or an event arrived from the Dashboard.
+  useLiveRefresh(presence.revision, pending.size > 0);
 
   const activeUsers = React.useMemo(
     () => users.filter((user) => user.active),

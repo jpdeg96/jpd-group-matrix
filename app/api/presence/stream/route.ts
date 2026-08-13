@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSessionUser } from "@/lib/auth/guards";
 import { listPresenceFlat, presenceSignature } from "@/lib/services/presence";
+import { getRevisionToken } from "@/lib/services/data-revision";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,20 +55,45 @@ export async function GET(request: NextRequest) {
       };
 
       let lastSignature = "";
+      let lastRevision = "";
 
       const tick = async () => {
         if (closed) return;
         try {
-          const entries = await listPresenceFlat(context);
+          const [entries, revision] = await Promise.all([
+            listPresenceFlat(context),
+            getRevisionToken(),
+          ]);
+
           const signature = presenceSignature(entries);
+          let sentSomething = false;
 
           if (signature !== lastSignature) {
             lastSignature = signature;
             send("presence", { presence: entries });
-          } else {
-            // Keep-alive comment: stops proxies closing an idle connection
-            // without counting as a data frame.
-            if (!closed) controller.enqueue(encoder.encode(": keep-alive\n\n"));
+            sentSomething = true;
+          }
+
+          // Carried on this connection rather than a second one: it is already
+          // open, already on a timer, and a browser only gets a handful of
+          // EventSource connections per origin before it starts queueing them.
+          //
+          // Sent on the first tick of every connection, not only on change.
+          // This stream closes every ~50s by design and the browser reconnects,
+          // so a server that only spoke up on change would go silent about
+          // anything that happened across that gap — the client would sit on
+          // stale data until the *next* unrelated edit. Deciding what counts as
+          // new is the client's job; it is the one that knows what it last saw.
+          if (revision !== lastRevision) {
+            lastRevision = revision;
+            send("revision", { revision });
+            sentSomething = true;
+          }
+
+          // Keep-alive comment: stops proxies closing an idle connection
+          // without counting as a data frame.
+          if (!sentSomething && !closed) {
+            controller.enqueue(encoder.encode(": keep-alive\n\n"));
           }
         } catch (error) {
           console.error("[presence-stream] poll failed", error);
