@@ -63,7 +63,7 @@ type SortKey =
   | "assigneeName";
 
 /** Which extra rows to include beyond the default open-work view. */
-type Scope = "OPEN" | "COMPLETED" | "STALE";
+type Scope = "OPEN" | "COMPLETED" | "STALE" | "ALL";
 
 export function DashboardView({
   events: initialEvents,
@@ -156,6 +156,8 @@ export function DashboardView({
     const filtered = events.filter((event) => {
       // Promoted events stay on the dashboard as the permanent record, but are
       // hidden by default so the screen shows outstanding work.
+      // ALL deliberately applies no status filter at all — it is the one scope
+      // that shows outstanding and finished work side by side.
       const promoted = event.status === "C1" || event.status === "COMPLETED";
       if (scope === "OPEN" && promoted) return false;
       if (scope === "COMPLETED" && !promoted) return false;
@@ -419,6 +421,13 @@ export function DashboardView({
           onClick={() => setScope("OPEN")}
         />
         <ShortcutChip
+          label="All"
+          count={events.length}
+          active={scope === "ALL"}
+          onClick={() => setScope(scope === "ALL" ? "OPEN" : "ALL")}
+          title="Open and completed work together. Completed rows stay dimmed so the two are still tellable apart."
+        />
+        <ShortcutChip
           label="Completed"
           count={completedCount}
           active={scope === "COMPLETED"}
@@ -524,7 +533,10 @@ export function DashboardView({
                 ? "Nothing sent to C1 yet"
                 : scope === "STALE"
                   ? `Nothing completed more than ${stats.staleDays} days ago`
-                  : "No events match these filters"
+                  : // ALL lands here too, which is right: with no status filter
+                    // applied, an empty result can only mean the other filters
+                    // excluded everything.
+                    "No events match these filters"
           }
           description={
             events.length === 0

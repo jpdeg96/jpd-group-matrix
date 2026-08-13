@@ -115,10 +115,18 @@ describe("the revision token", () => {
       data: { eventId: event.id, body: "First." },
     });
     const before = await token();
+
+    // An explicit later instant rather than `new Date()`. Notes carry no
+    // `updated_at`, so the token takes the larger of createdAt and editedAt —
+    // and a test that creates then immediately edits can land both in the same
+    // millisecond, which made this fail intermittently. The real path cannot:
+    // editing requires a human round-trip through the dialog. Pinning the time
+    // tests the rule instead of the machine's clock resolution.
     await prisma.eventNote.update({
       where: { id: note.id },
-      data: { body: "Second.", editedAt: new Date() },
+      data: { body: "Second.", editedAt: new Date(Date.now() + 1_000) },
     });
+
     expect(await token()).not.toBe(before);
   });
 
