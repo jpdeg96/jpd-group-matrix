@@ -55,6 +55,8 @@ export function ClockifyWidget() {
   const [summary, setSummary] = React.useState<ClockifySummary | null>(null);
   const [tick, setTick] = React.useState(0);
   const [open, setOpen] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // Announces clock-in / clock-out as toasts, for the viewer and for everyone
@@ -62,25 +64,39 @@ export function ClockifyWidget() {
   // requests.
   useClockNotifications(summary);
 
-  React.useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const data = await api.get<{ clockify: ClockifySummary }>("/api/clockify");
-        if (!cancelled) setSummary(data.clockify);
-      } catch {
-        // Ambient widget: a failed poll just leaves the last known state.
-      }
-    };
-
-    void load();
-    const timer = setInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+  const load = React.useCallback(async () => {
+    try {
+      // The cache-buster is only on this path. `api.get` sets no cache mode, so
+      // a manual retry could otherwise be answered from the browser's HTTP
+      // cache with the very error the person is trying to clear.
+      const data = await api.get<{ clockify: ClockifySummary }>(
+        `/api/clockify?t=${Date.now()}`,
+      );
+      setSummary(data.clockify);
+      setLastUpdated(new Date());
+      return true;
+    } catch {
+      // Ambient widget: a failed poll leaves the last known state rather than
+      // blanking a chip that was reading correctly a moment ago.
+      return false;
+    }
   }, []);
+
+  /** Forces an immediate re-read, for when Clockify was unreachable. */
+  const refreshNow = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  React.useEffect(() => {
+    void load();
+    const timer = setInterval(() => void load(), REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
 
   // Local 1s tick so a running timer counts up smoothly.
   React.useEffect(() => {
@@ -112,7 +128,7 @@ export function ClockifyWidget() {
         aria-expanded={open}
         title={
           summary.error
-            ? summary.error
+            ? `${summary.error} Click to retry.`
             : running
               ? "You are clocked in. Click for details."
               : "Clocked out. Click for details."
@@ -146,9 +162,23 @@ export function ClockifyWidget() {
           style={{ background: "var(--surface-raised)", borderColor: "var(--line-strong)" }}
         >
           {summary.error ? (
-            <p className="text-[12px]" style={{ color: "var(--danger)" }}>
-              {summary.error}
-            </p>
+            <div>
+              <p className="text-[12px]" style={{ color: "var(--danger)" }}>
+                {summary.error}
+              </p>
+              {/* The chip only re-reads on its own timer, so an outage that has
+                  since cleared would otherwise keep showing an error for up to
+                  half a minute with no way to hurry it along. */}
+              <button
+                type="button"
+                onClick={() => void refreshNow()}
+                disabled={refreshing}
+                className="mt-2 rounded-md border px-2 py-1 text-[11.5px] font-medium transition disabled:opacity-60"
+                style={{ borderColor: "var(--line-strong)", color: "var(--ink)" }}
+              >
+                {refreshing ? "Trying…" : "Try again"}
+              </button>
+            </div>
           ) : !summary.linked ? (
             <p className="text-[12px]" style={{ color: "var(--ink-muted)" }}>
               Your account is not linked to a Clockify user yet. An administrator
@@ -217,6 +247,29 @@ export function ClockifyWidget() {
                 ))}
               </ul>
             )}
+          </div>
+
+          {/* Refresh is available in every state, not only after a failure.
+              "Updated a moment ago" is what makes it answerable whether the
+              numbers are stale or simply unchanged — without it, a successful
+              retry that returns identical figures looks like nothing happened. */}
+          <div
+            className="mt-3 flex items-center justify-between gap-2 border-t pt-2"
+            style={{ borderColor: "var(--line)" }}
+          >
+            <span className="text-[10.5px]" style={{ color: "var(--ink-subtle)" }}>
+              {lastUpdated ? `Updated ${formatBusinessTime(lastUpdated.toISOString())}` : "Not yet updated"}
+            </span>
+            <button
+              type="button"
+              onClick={() => void refreshNow()}
+              disabled={refreshing}
+              className="rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:opacity-60"
+              style={{ borderColor: "var(--line-strong)", color: "var(--ink-muted)" }}
+              title="Re-read time data from Clockify now"
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
         </div>
       ) : null}

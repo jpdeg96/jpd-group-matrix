@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-14-clockify-refresh",
+    date: "Aug 14, 2026",
+    kind: "added",
+    title: "Refresh the Clockify chip yourself",
+    body: "If time data ever shows as unavailable, click the chip in the header and press Refresh to re-read it straight away rather than waiting for the next automatic check. It also now shows when it last updated.",
+  },
+  {
     id: "2026-08-13-release-notes",
     date: "Aug 13, 2026",
     kind: "added",
