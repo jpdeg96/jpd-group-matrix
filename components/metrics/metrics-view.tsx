@@ -126,6 +126,25 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
     downloadCsv(`user-metrics-${metrics.period.toLowerCase()}-${metrics.to}.csv`, csv);
   }
 
+  // The hours window is not always the period's own range — all-time is capped,
+  // because Clockify needs a bounded one. Say which window the bars actually
+  // cover rather than let the heading imply a wider one.
+  const hoursWindow =
+    metrics.hours.from === metrics.hours.to
+      ? formatPlainDate(metrics.hours.to)
+      : `${formatPlainDate(metrics.hours.from)} – ${formatPlainDate(metrics.hours.to)}`;
+
+  const hoursHint = [
+    metrics.hours.capped
+      ? `From Clockify, ${hoursWindow} (all-time hours are capped to the last year).`
+      : `From Clockify, ${hoursWindow}.`,
+    metrics.hours.excludedNames.length > 0
+      ? `Excluding ${metrics.hours.excludedNames.join(", ")}.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const rangeLabel = metrics.from
     ? metrics.from === metrics.to
       ? formatPlainDate(metrics.from)
@@ -227,12 +246,8 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
         </ChartCard>
 
         <ChartCard
-          title="Hours worked this week"
-          hint={
-            metrics.hours.excludedNames.length > 0
-              ? `From Clockify, Monday to now. Excluding ${metrics.hours.excludedNames.join(", ")}.`
-              : "From Clockify, Monday to now."
-          }
+          title={`Hours worked — ${PERIOD_LABELS[metrics.period].toLowerCase()}`}
+          hint={hoursHint}
         >
           {!metrics.hours.enabled ? (
             <p className="px-1 py-6 text-center text-[12px]" style={{ color: "var(--ink-subtle)" }}>
@@ -247,7 +262,7 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
               data={hourBars}
               color={dark ? SEQUENTIAL_ALT_DARK : SEQUENTIAL_ALT_LIGHT}
               valueFormatter={formatDurationShort}
-              emptyMessage="No time logged yet this week."
+              emptyMessage="No time logged in this period."
             />
           )}
         </ChartCard>

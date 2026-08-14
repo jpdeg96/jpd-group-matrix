@@ -92,8 +92,8 @@ export function resolveMetricsPeriod(
       return { from: startOfWeek(today), to: today, label };
 
     case "LAST_WEEK": {
-      const lastMonday = subtractDays(startOfWeek(today), 7);
-      return { from: lastMonday, to: endOfWeek(lastMonday), label };
+      const lastSunday = subtractDays(startOfWeek(today), 7);
+      return { from: lastSunday, to: endOfWeek(lastSunday), label };
     }
 
     case "THIS_MONTH":

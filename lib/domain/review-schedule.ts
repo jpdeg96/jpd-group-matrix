@@ -237,16 +237,21 @@ export interface DateRange {
 }
 
 /**
- * The Monday of the week containing `date`.
+ * The Sunday of the week containing `date`.
  *
- * Weeks start on Monday because the weekend rule already treats Saturday and
- * Sunday as the end of a working week — a Sunday-start week would put a
- * deadline's own weekend in the *following* bucket.
+ * The business week runs Sunday to Saturday, by request. Note that this is
+ * independent of the weekend rule, which moves a deadline landing on Saturday
+ * or Sunday back to the preceding Friday — that rule is about when work can be
+ * done, this is about how a week is bucketed for reporting.
+ *
+ * `dayOfWeek` is ISO-numbered (Monday 1 … Sunday 7), so the modulo maps Sunday
+ * to zero and leaves it where it is.
  */
 export function startOfWeek(date: PlainDate): PlainDate {
-  return subtractDays(date, dayOfWeek(date) - 1);
+  return subtractDays(date, dayOfWeek(date) % 7);
 }
 
+/** The Saturday closing the week containing `date`. */
 export function endOfWeek(date: PlainDate): PlainDate {
   return addDays(startOfWeek(date), 6);
 }
@@ -254,9 +259,9 @@ export function endOfWeek(date: PlainDate): PlainDate {
 /**
  * Resolves a shortcut into an inclusive date range.
  *
- * "This week" runs from today rather than from Monday: a filter meant to answer
- * "what do I still have to do this week?" should not surface deadlines that
- * have already passed.
+ * "This week" runs from today rather than from the start of the week: a filter
+ * meant to answer "what do I still have to do this week?" should not surface
+ * deadlines that have already passed.
  */
 export function resolveDueRange(key: DueRangeKey, today: PlainDate): DateRange {
   switch (key) {
@@ -265,8 +270,8 @@ export function resolveDueRange(key: DueRangeKey, today: PlainDate): DateRange {
     case "THIS_WEEK":
       return { from: today, to: endOfWeek(today) };
     case "NEXT_WEEK": {
-      const nextMonday = addDays(startOfWeek(today), 7);
-      return { from: nextMonday, to: addDays(nextMonday, 6) };
+      const nextSunday = addDays(startOfWeek(today), 7);
+      return { from: nextSunday, to: addDays(nextSunday, 6) };
     }
   }
 }

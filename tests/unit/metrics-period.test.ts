@@ -50,8 +50,10 @@ describe("resolveMetricsPeriod", () => {
   it("ends in-progress periods at today, not at the end of the unit", () => {
     // Otherwise every average would be dragged down by days that have not
     // happened yet.
+    // The business week runs Sunday to Saturday, so the Wednesday's week
+    // opened on Sunday 2026-08-09.
     expect(resolveMetricsPeriod("THIS_WEEK", wednesday)).toMatchObject({
-      from: "2026-08-10",
+      from: "2026-08-09",
       to: "2026-08-12",
     });
     expect(resolveMetricsPeriod("THIS_MONTH", wednesday)).toMatchObject({
@@ -66,8 +68,8 @@ describe("resolveMetricsPeriod", () => {
 
   it("resolves completed periods to their full span", () => {
     expect(resolveMetricsPeriod("LAST_WEEK", wednesday)).toMatchObject({
-      from: "2026-08-03",
-      to: "2026-08-09",
+      from: "2026-08-02",
+      to: "2026-08-08",
     });
     expect(resolveMetricsPeriod("LAST_MONTH", wednesday)).toMatchObject({
       from: "2026-07-01",
@@ -81,12 +83,19 @@ describe("resolveMetricsPeriod", () => {
     expect(range.to).toBe("2026-08-12");
   });
 
-  it("keeps last week correct when today is Monday", () => {
-    // The boundary case: Monday is the first day of its own week, so last week
-    // must be the seven days immediately before it.
-    expect(resolveMetricsPeriod("LAST_WEEK", d("2026-08-10"))).toMatchObject({
-      from: "2026-08-03",
-      to: "2026-08-09",
+  it("keeps last week correct when today is Sunday", () => {
+    // The boundary case: Sunday now opens its own week, so last week must be
+    // the seven days immediately before it — not the week Sunday used to close.
+    expect(resolveMetricsPeriod("LAST_WEEK", d("2026-08-09"))).toMatchObject({
+      from: "2026-08-02",
+      to: "2026-08-08",
+    });
+  });
+
+  it("keeps Saturday in the week that began the previous Sunday", () => {
+    expect(resolveMetricsPeriod("THIS_WEEK", d("2026-08-15"))).toMatchObject({
+      from: "2026-08-09",
+      to: "2026-08-15",
     });
   });
 
@@ -107,8 +116,8 @@ describe("resolveMetricsPeriod", () => {
   it("leaves no gap between last week and this week", () => {
     const last = resolveMetricsPeriod("LAST_WEEK", wednesday);
     const current = resolveMetricsPeriod("THIS_WEEK", wednesday);
-    expect(last.to).toBe("2026-08-09");
-    expect(current.from).toBe("2026-08-10");
+    expect(last.to).toBe("2026-08-08");
+    expect(current.from).toBe("2026-08-09");
   });
 
   it("labels every period", () => {
@@ -121,7 +130,12 @@ describe("resolveMetricsPeriod", () => {
 describe("daysInRange", () => {
   it("enumerates an inclusive range", () => {
     const range = resolveMetricsPeriod("THIS_WEEK", wednesday);
-    expect(daysInRange(range)).toEqual(["2026-08-10", "2026-08-11", "2026-08-12"]);
+    expect(daysInRange(range)).toEqual([
+      "2026-08-09",
+      "2026-08-10",
+      "2026-08-11",
+      "2026-08-12",
+    ]);
   });
 
   it("returns a single day for today", () => {

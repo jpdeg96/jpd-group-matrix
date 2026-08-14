@@ -43,6 +43,20 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-14-week-runs-sunday",
+    date: "Aug 14, 2026",
+    kind: "changed",
+    title: "The work week now runs Sunday to Saturday",
+    body: "Anywhere the app talks about a week — the Metrics period filter, the C1 This week and Next week shortcuts, and the hours totals — a week now starts on Sunday and ends on Saturday. It used to run Monday to Sunday, so those figures will shift.",
+  },
+  {
+    id: "2026-08-14-hours-follow-period",
+    date: "Aug 14, 2026",
+    kind: "changed",
+    title: "Hours worked follows the period you pick",
+    body: "On the Metrics page the hours chart used to always show this week, whatever period was selected. It now matches the filter — today, last month, year to date and so on — and the heading says which.",
+  },
+  {
     id: "2026-08-14-clockify-refresh",
     date: "Aug 14, 2026",
     kind: "added",

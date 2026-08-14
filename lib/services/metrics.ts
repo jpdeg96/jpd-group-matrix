@@ -11,7 +11,12 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { dbDateFromPlainDate, type PlainDate } from "@/lib/date/plain-date";
+import {
+  addDays,
+  dbDateFromPlainDate,
+  subtractDays,
+  type PlainDate,
+} from "@/lib/date/plain-date";
 import {
   daysInRange,
   resolveMetricsPeriod,
@@ -19,9 +24,17 @@ import {
   type MetricsPeriod,
   type PeriodRange,
 } from "@/lib/domain/metrics-period";
-import { startOfWeek } from "@/lib/domain/review-schedule";
 import { businessToday, getSettings } from "./settings";
 import { getHoursByUser, startOfBusinessDay, type WeeklyHoursResult } from "./clockify";
+
+/**
+ * How far back "all time" reaches for the hours chart.
+ *
+ * Clockify needs a bounded range, and paging through every entry a team has
+ * ever logged on each load would be slow and pointless. A year is far past the
+ * horizon anyone asks staffing questions over.
+ */
+const ALL_TIME_HOURS_DAYS = 365;
 
 export interface UserMetricRow {
   userId: string;
@@ -67,8 +80,15 @@ export interface MetricsResult {
   users: UserMetricRow[];
   types: TypeSliceRow[];
   daily: DailyPoint[];
-  /** Hours logged this week. Independent of the period filter, by request. */
-  hours: WeeklyHoursResult & { weekStart: PlainDate };
+  /**
+   * Hours logged over the selected period.
+   *
+   * `from`/`to` are the window actually queried, which is not always the
+   * period's own range: all-time has no lower bound and Clockify needs one, so
+   * it is capped. Reporting the real window lets the screen say so rather than
+   * quietly showing a narrower figure under a broader heading.
+   */
+  hours: WeeklyHoursResult & { from: PlainDate; to: PlainDate; capped: boolean };
 }
 
 /** Converts an inclusive date range into the instant range the columns need. */
@@ -219,12 +239,23 @@ export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> 
     count: dailyCounts.get(day) ?? 0,
   }));
 
-  // Hours are always "this week" regardless of the period filter — it is a
-  // staffing question, not a reporting-window one.
-  const weekStart = startOfWeek(today);
+  // Hours follow the selected period, so the chart answers the same question
+  // as everything else on the screen.
+  //
+  // All-time is the exception: Clockify's time-entries endpoint needs a bounded
+  // range, and an unbounded one would page through years of entries for every
+  // person on every load. It is capped to a year and the screen says so.
+  const hoursFrom = range.from ?? subtractDays(range.to, ALL_TIME_HOURS_DAYS);
+  const capped = range.from === null;
+
+  // The instant after the last day, clamped to now: a period that has not
+  // finished must not ask Clockify about the future.
+  const nowInstant = new Date();
+  const endExclusive = startOfBusinessDay(addDays(range.to, 1), settings.timeZone);
+
   const hours = await getHoursByUser(
-    startOfBusinessDay(weekStart, settings.timeZone),
-    new Date(),
+    startOfBusinessDay(hoursFrom, settings.timeZone),
+    endExclusive > nowInstant ? nowInstant : endExclusive,
   );
 
   const spanDays = dayKeys.length || 1;
@@ -243,7 +274,7 @@ export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> 
     users: userRows,
     types: typeRows,
     daily,
-    hours: { ...hours, weekStart },
+    hours: { ...hours, from: hoursFrom, to: range.to, capped },
   };
 }
 

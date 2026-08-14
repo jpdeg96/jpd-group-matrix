@@ -353,15 +353,27 @@ describe("due-date shortcuts", () => {
   // 2026-08-12 is a Wednesday.
   const wednesday = d("2026-08-12");
 
-  it("finds the Monday and Sunday of the containing week", () => {
-    expect(startOfWeek(wednesday)).toBe("2026-08-10");
-    expect(endOfWeek(wednesday)).toBe("2026-08-16");
+  // The business week runs Sunday to Saturday.
+  it("finds the Sunday and Saturday of the containing week", () => {
+    expect(startOfWeek(wednesday)).toBe("2026-08-09");
+    expect(endOfWeek(wednesday)).toBe("2026-08-15");
   });
 
-  it("treats Monday and Sunday as the ends of the same week", () => {
-    expect(startOfWeek(d("2026-08-10"))).toBe("2026-08-10");
-    expect(startOfWeek(d("2026-08-16"))).toBe("2026-08-10");
-    expect(endOfWeek(d("2026-08-10"))).toBe("2026-08-16");
+  it("treats Sunday and Saturday as the ends of the same week", () => {
+    expect(startOfWeek(d("2026-08-09"))).toBe("2026-08-09");
+    expect(startOfWeek(d("2026-08-15"))).toBe("2026-08-09");
+    expect(endOfWeek(d("2026-08-09"))).toBe("2026-08-15");
+  });
+
+  it("puts Sunday at the start of its own week, not the end of the previous one", () => {
+    // The boundary the change turns on: under a Monday-start week this Sunday
+    // belonged to the week that had just finished.
+    expect(startOfWeek(d("2026-08-16"))).toBe("2026-08-16");
+    expect(endOfWeek(d("2026-08-16"))).toBe("2026-08-22");
+  });
+
+  it("keeps Saturday in the week that began the previous Sunday", () => {
+    expect(startOfWeek(d("2026-08-15"))).toBe("2026-08-09");
   });
 
   it("resolves Today to a single day", () => {
@@ -371,39 +383,47 @@ describe("due-date shortcuts", () => {
     });
   });
 
-  it("runs This week from today, not from Monday", () => {
+  it("runs This week from today, not from the start of the week", () => {
     // A "what's left this week?" filter should not resurface passed deadlines.
     expect(resolveDueRange("THIS_WEEK", wednesday)).toEqual({
       from: "2026-08-12",
-      to: "2026-08-16",
+      to: "2026-08-15",
     });
   });
 
-  it("resolves Next week to the following Monday–Sunday", () => {
+  it("resolves Next week to the following Sunday–Saturday", () => {
     expect(resolveDueRange("NEXT_WEEK", wednesday)).toEqual({
-      from: "2026-08-17",
-      to: "2026-08-23",
+      from: "2026-08-16",
+      to: "2026-08-22",
     });
   });
 
-  it("keeps Next week correct when today is already Sunday", () => {
+  it("keeps Next week correct when today is already Saturday", () => {
+    // Saturday closes the week, so next week is the one starting tomorrow.
+    expect(resolveDueRange("NEXT_WEEK", d("2026-08-15"))).toEqual({
+      from: "2026-08-16",
+      to: "2026-08-22",
+    });
+  });
+
+  it("keeps Next week correct when today is Sunday, which opens a week", () => {
     expect(resolveDueRange("NEXT_WEEK", d("2026-08-16"))).toEqual({
-      from: "2026-08-17",
-      to: "2026-08-23",
+      from: "2026-08-23",
+      to: "2026-08-29",
     });
   });
 
   it("crosses a month boundary without gaps", () => {
     const range = resolveDueRange("NEXT_WEEK", d("2026-08-27"));
-    expect(range).toEqual({ from: "2026-08-31", to: "2026-09-06" });
+    expect(range).toEqual({ from: "2026-08-30", to: "2026-09-05" });
   });
 
   it("tests range membership inclusively at both ends", () => {
     const range = resolveDueRange("THIS_WEEK", wednesday);
     expect(isWithinRange(d("2026-08-12"), range)).toBe(true);
-    expect(isWithinRange(d("2026-08-16"), range)).toBe(true);
+    expect(isWithinRange(d("2026-08-15"), range)).toBe(true);
     expect(isWithinRange(d("2026-08-11"), range)).toBe(false);
-    expect(isWithinRange(d("2026-08-17"), range)).toBe(false);
+    expect(isWithinRange(d("2026-08-16"), range)).toBe(false);
   });
 
   it("leaves no gap between This week and Next week", () => {

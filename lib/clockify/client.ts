@@ -105,21 +105,57 @@ export interface ClockifyWorkspaceUser {
   status: string;
 }
 
-/** Time entries for one user, newest first, bounded by an instant range. */
-export function getTimeEntries(
+/**
+ * Time entries for one user, newest first, bounded by an instant range.
+ *
+ * Pages until the range is exhausted. A single request returns at most
+ * `pageSize` rows, which was invisible while this only ever fetched one week —
+ * but a month or a year of entries silently exceeds it, and the failure mode is
+ * the worst kind: totals that look plausible and are quietly too low.
+ *
+ * `maxPages` is a stop, not a target. It bounds a mistaken range rather than
+ * letting one page request forever.
+ */
+export async function getTimeEntries(
   workspaceId: string,
   clockifyUserId: string,
-  options: { start: Date; end: Date; pageSize?: number },
+  options: { start: Date; end: Date; pageSize?: number; maxPages?: number },
 ): Promise<ClockifyTimeEntry[]> {
-  const params = new URLSearchParams({
-    start: options.start.toISOString(),
-    end: options.end.toISOString(),
-    "page-size": String(options.pageSize ?? 200),
-  });
+  const pageSize = options.pageSize ?? 200;
+  const maxPages = options.maxPages ?? 25;
 
-  return request<ClockifyTimeEntry[]>(
-    `/workspaces/${workspaceId}/user/${clockifyUserId}/time-entries?${params}`,
-  );
+  const all: ClockifyTimeEntry[] = [];
+
+  for (let page = 1; page <= maxPages; page++) {
+    const params = new URLSearchParams({
+      start: options.start.toISOString(),
+      end: options.end.toISOString(),
+      "page-size": String(pageSize),
+      page: String(page),
+    });
+
+    const rows = await request<ClockifyTimeEntry[]>(
+      `/workspaces/${workspaceId}/user/${clockifyUserId}/time-entries?${params}`,
+    );
+
+    all.push(...rows);
+
+    // A short page is the last page.
+    if (rows.length < pageSize) break;
+
+    // Reaching the cap means the range genuinely held more than we fetched, so
+    // the total returned is low. Say so: a quietly short total is the failure
+    // this paging exists to prevent, and hitting the ceiling silently would
+    // reintroduce it in a form that is harder to spot.
+    if (page === maxPages) {
+      console.warn(
+        `[clockify] hit the ${maxPages}-page cap for user ${clockifyUserId} ` +
+          `(${all.length} entries). Totals for this range are understated.`,
+      );
+    }
+  }
+
+  return all;
 }
 
 /** The entry a user currently has running, if any. */
