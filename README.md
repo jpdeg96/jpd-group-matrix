@@ -255,6 +255,27 @@ Each person also needs their Clockify user linked under Users. Switched off,
 unconfigured, or unreachable, the widget simply does not render — it never
 breaks a page.
 
+> **Clockify plan matters, and the free plan may not be enough.**
+>
+> The API itself is available on every plan, but **newly created Free
+> workspaces are capped at 30 requests per hour for the entire workspace**,
+> against 50 per second on any paid plan.
+>
+> This integration polls well above that. One `getClockifySummary` costs
+> 2 requests for the viewer plus one per other linked person — 4 requests with
+> three people linked — and the header chip refreshes every 30 seconds, so a
+> single open tab spends roughly **480 requests an hour**. Three people with the
+> app open is nearer 1,400.
+>
+> If the cap applies, the symptom is time data that lapses in and out with a
+> rate-limit message. Fitting inside 30/hour means one shared server-side poll
+> every ten minutes or so, which would make the clock-in/out notifications and
+> the "clocked in now" roster too stale to be worth having.
+>
+> Clockify documents the restriction as applying to *newly created* Free
+> workspaces without naming a cutoff date, so an older free workspace may be
+> unaffected. The `429` message says explicitly when this is what is happening.
+
 > **Verified against a live workspace.** Authentication, workspace resolution,
 > the member list and the weekly summary have all been exercised end to end
 > against a real Clockify account.

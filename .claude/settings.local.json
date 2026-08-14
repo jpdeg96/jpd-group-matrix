@@ -126,7 +126,8 @@
       "Bash(cp __TRACKED_VAR__/apple-touch-icon.png app/apple-icon.png)",
       "Bash(cp __TRACKED_VAR__/android-chrome-192x192.png public/android-chrome-192x192.png)",
       "Bash(cp __TRACKED_VAR__/android-chrome-512x512.png public/android-chrome-512x512.png)",
-      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"C:\\\\Users\\\\jpdeg\\\\Downloads\\\\beta_phantomchecker-events\"; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if\\($c\\){ $c.OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }; Start-Sleep -Seconds 3; npm run build 2>&1 | Select-Object -Last 28)"
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"C:\\\\Users\\\\jpdeg\\\\Downloads\\\\beta_phantomchecker-events\"; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if\\($c\\){ $c.OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }; Start-Sleep -Seconds 3; npm run build 2>&1 | Select-Object -Last 28)",
+      "WebFetch(domain:clockify.me)"
     ]
   }
 }

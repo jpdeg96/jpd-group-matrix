@@ -61,7 +61,15 @@ async function request<T>(path: string): Promise<T> {
             ? "That API key cannot read this workspace. Check the workspace ID in Settings matches the account the key belongs to."
             : response.status === 404
               ? "Clockify workspace or user not found. Check the workspace ID in Settings and the linked Clockify user under Users."
-              : `Clockify returned ${response.status}. ${body.slice(0, 200)}`,
+              : response.status === 429
+                ? // Called out separately because the fix is a plan, not a
+                  // setting, and the generic message sends people hunting
+                  // through configuration that is perfectly correct. Newly
+                  // created Free workspaces allow only 30 requests per hour
+                  // for the whole workspace; this integration polls well above
+                  // that. See the Clockify section of the README.
+                  "Clockify is rate-limiting this workspace. Free workspaces created recently allow only 30 API requests per hour in total, which this integration exceeds. The data will keep lapsing until the workspace is on a paid plan or the polling is slowed right down."
+                : `Clockify returned ${response.status}. ${body.slice(0, 200)}`,
       );
     }
 
