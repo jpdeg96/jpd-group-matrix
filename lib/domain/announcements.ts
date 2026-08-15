@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-guide",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "A guide, from the Guide button in the header",
+    body: "Explains what each screen is for and the behaviours that catch people out — why an event disappears, why an approved payroll week refuses to change. There is a search box, and a section on what to check when something looks wrong.",
+  },
+  {
     id: "2026-08-15-invoice-pdfs",
     date: "Aug 15, 2026",
     kind: "added",

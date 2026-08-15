@@ -118,6 +118,23 @@ export function AppNav({
 
           <ClockifyWidget />
 
+          {/* In the header rather than the tab row: the tab row is already
+              seven items, and help is something you reach for occasionally
+              rather than a place you work. */}
+          <Link
+            href="/help"
+            aria-label="Guide"
+            title="How the site works"
+            className="rounded-md border px-2 py-1 text-[11.5px] font-medium transition"
+            style={{
+              borderColor: pathname === "/help" ? "transparent" : "var(--line-strong)",
+              background: pathname === "/help" ? "var(--accent-soft)" : "transparent",
+              color: pathname === "/help" ? "var(--accent)" : "var(--ink-muted)",
+            }}
+          >
+            Guide
+          </Link>
+
           <ThemeToggle className="hidden sm:inline-flex" />
 
           {realUser.role === "ADMIN" && !isImpersonating ? (
