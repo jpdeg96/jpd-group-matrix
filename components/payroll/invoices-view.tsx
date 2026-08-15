@@ -150,7 +150,7 @@ export function InvoicesView({
           <table className="w-full min-w-[1250px] border-collapse text-left">
             <thead style={{ background: "var(--canvas)" }}>
               <tr>
-                {["Invoice", "Contractor", "Period", "Hours", "Amount", "Status", "Deposit", "Paid", "USDT tx", ""].map(
+                {["Invoice", "Contractor", "Period", "Hours", "Amount", "Status", "Deposit", "Paid", "USDT tx", "PDF", ""].map(
                   (label, index) => (
                     <th
                       key={label || index}
@@ -224,6 +224,18 @@ export function InvoicesView({
                       ) : (
                         <span style={{ color: "var(--ink-subtle)" }}>—</span>
                       )}
+                    </td>
+                    <td className="px-3 py-2">
+                      <a
+                        href={`/api/payroll/invoices/${invoice.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded border px-2 py-0.5 text-[11px] font-medium"
+                        style={{ borderColor: "var(--line-strong)", color: "var(--accent)" }}
+                        title="Open the invoice PDF"
+                      >
+                        PDF
+                      </a>
                     </td>
                     <td className="px-3 py-2">
                       {isAdmin && !voided ? (

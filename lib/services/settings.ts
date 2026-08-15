@@ -36,6 +36,15 @@ export interface AppSettings {
   stubHubLinksEnabled: boolean;
   clockifyEnabled: boolean;
   clockifyWorkspaceId: string | null;
+
+  /** Payroll identity, printed on invoices and remittance emails. */
+  businessName: string;
+  businessAddress: string | null;
+  invoiceNote: string | null;
+  adminRemittanceEmail: string | null;
+  remittanceFromName: string;
+  remittancePaymentMethod: string;
+  remittanceFooterNote: string | null;
 }
 
 const CACHE_TTL_MS = 5_000;
@@ -69,6 +78,13 @@ export async function getSettings(): Promise<AppSettings> {
     weekendAdjustment: row.weekendAdjustment,
     presenceTimeoutMinutes: row.presenceTimeoutMinutes,
     defaultTheme: isTheme(row.defaultTheme) ? row.defaultTheme : "light",
+    businessName: row.businessName,
+    businessAddress: row.businessAddress,
+    invoiceNote: row.invoiceNote,
+    adminRemittanceEmail: row.adminRemittanceEmail,
+    remittanceFromName: row.remittanceFromName,
+    remittancePaymentMethod: row.remittancePaymentMethod,
+    remittanceFooterNote: row.remittanceFooterNote,
     seatGeekLinksEnabled: row.seatGeekLinksEnabled,
     stubHubLinksEnabled: row.stubHubLinksEnabled,
     clockifyEnabled: row.clockifyEnabled,
@@ -111,6 +127,15 @@ export interface UpdateSettingsInput {
   stubHubLinksEnabled?: boolean;
   clockifyEnabled?: boolean;
   clockifyWorkspaceId?: string | null;
+
+  /** Payroll identity. The Resend credential is not here, by design. */
+  businessName?: string;
+  businessAddress?: string | null;
+  invoiceNote?: string | null;
+  adminRemittanceEmail?: string | null;
+  remittanceFromName?: string;
+  remittancePaymentMethod?: string;
+  remittanceFooterNote?: string | null;
 }
 
 /**
@@ -180,6 +205,23 @@ export async function updateSettings(
         : {}),
       ...(input.clockifyEnabled !== undefined
         ? { clockifyEnabled: input.clockifyEnabled }
+        : {}),
+      ...(input.businessName !== undefined ? { businessName: input.businessName } : {}),
+      ...(input.businessAddress !== undefined
+        ? { businessAddress: input.businessAddress || null }
+        : {}),
+      ...(input.invoiceNote !== undefined ? { invoiceNote: input.invoiceNote || null } : {}),
+      ...(input.adminRemittanceEmail !== undefined
+        ? { adminRemittanceEmail: input.adminRemittanceEmail || null }
+        : {}),
+      ...(input.remittanceFromName !== undefined
+        ? { remittanceFromName: input.remittanceFromName }
+        : {}),
+      ...(input.remittancePaymentMethod !== undefined
+        ? { remittancePaymentMethod: input.remittancePaymentMethod }
+        : {}),
+      ...(input.remittanceFooterNote !== undefined
+        ? { remittanceFooterNote: input.remittanceFooterNote || null }
         : {}),
       ...(input.clockifyWorkspaceId !== undefined
         ? { clockifyWorkspaceId: input.clockifyWorkspaceId?.trim() || null }

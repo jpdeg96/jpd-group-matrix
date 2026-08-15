@@ -86,6 +86,17 @@ export const invoiceActionSchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+export const remittanceSchema = z.object({
+  payrollPeriodId: z.string().uuid(),
+  /**
+   * Both default to false on purpose. Mailing an old week, or mailing someone
+   * twice, has to be asked for rather than being what happens if a field is
+   * left off a request.
+   */
+  allowOlderPeriod: z.boolean().optional(),
+  resend: z.boolean().optional(),
+});
+
 export const seedContractorsSchema = z.object({
   people: z
     .array(

@@ -17,6 +17,7 @@ import {
 } from "@/lib/services/invoices";
 import { setApprovalStatus } from "@/lib/services/payroll";
 import { listSeedableUsers, seedContractorsFromUsers } from "@/lib/services/contractors";
+import { sendRemittanceForPeriod } from "@/lib/services/remittance";
 import type { ActorContext } from "@/lib/auth/actor";
 
 const PERIOD_START = new Date("2026-07-05T00:00:00Z"); // Sunday
@@ -428,6 +429,68 @@ describe("approval safeguards", () => {
     expect(rejected.approvedById).toBeNull();
     expect(rejected.approvedAt).toBeNull();
     expect(rejected.reviewNote).toBe("Hours look wrong");
+  });
+});
+
+describe("remittance safeguards", () => {
+  const OLDER_START = new Date("2026-06-28T00:00:00Z"); // Sunday
+  const OLDER_END = new Date("2026-07-04T00:00:00Z"); // Saturday
+  const OLDER_DEPOSIT = new Date("2026-07-10T00:00:00Z"); // the Friday after
+
+  async function twoPeriods() {
+    const actor = await makeActor();
+    const older = await prisma.payrollPeriod.create({
+      data: { periodStart: OLDER_START, periodEnd: OLDER_END, depositDate: OLDER_DEPOSIT },
+    });
+    const latest = await period();
+    return { actor, older, latest };
+  }
+
+  it("refuses to mail anything but the latest period", async () => {
+    // The mistake worth making impossible: the spreadsheet this replaces could
+    // be pointed at any row, and a mis-click mailed contractors about a week
+    // that had already been settled.
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.RESEND_FROM_EMAIL = "payroll@jpdgroup.net";
+
+    const { actor, older } = await twoPeriods();
+
+    await expect(sendRemittanceForPeriod(older.id, actor)).rejects.toThrow(
+      /not the latest pay period/i,
+    );
+  });
+
+  it("names the latest period in the refusal, so the fix is obvious", async () => {
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.RESEND_FROM_EMAIL = "payroll@jpdgroup.net";
+
+    const { actor, older } = await twoPeriods();
+
+    await expect(sendRemittanceForPeriod(older.id, actor)).rejects.toThrow(/Jul 5, 2026/);
+  });
+
+  it("allows an older period when it is explicitly confirmed", async () => {
+    // Reissuing a corrected invoice for an earlier week is legitimate; it just
+    // has to be asked for. No invoices exist here, so nothing is actually sent.
+    process.env.RESEND_API_KEY = "test-key";
+    process.env.RESEND_FROM_EMAIL = "payroll@jpdgroup.net";
+
+    const { actor, older } = await twoPeriods();
+
+    const result = await sendRemittanceForPeriod(older.id, actor, { allowOlderPeriod: true });
+    expect(result.sent).toEqual([]);
+    expect(result.failed).toEqual([]);
+  });
+
+  it("refuses outright when email is not configured", async () => {
+    delete process.env.RESEND_API_KEY;
+    delete process.env.RESEND_FROM_EMAIL;
+
+    const { actor, latest } = await twoPeriods();
+
+    await expect(sendRemittanceForPeriod(latest.id, actor)).rejects.toThrow(
+      /RESEND_API_KEY/,
+    );
   });
 });
 

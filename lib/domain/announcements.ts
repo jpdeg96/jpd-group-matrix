@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-15-invoice-pdfs",
+    date: "Aug 15, 2026",
+    kind: "added",
+    title: "Invoice PDFs and remittance emails",
+    body: "Every invoice now has a PDF, opened from the PDF link on the Invoices screen. Send remittance on the Payroll dashboard emails each contractor their invoice as an attachment and sends the administrator a summary with a total.",
+  },
+  {
     id: "2026-08-15-payroll",
     date: "Aug 15, 2026",
     kind: "added",

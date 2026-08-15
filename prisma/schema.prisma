@@ -330,6 +330,28 @@ model Settings {
   clockifyEnabled     Boolean @default(false) @map("clockify_enabled")
   clockifyWorkspaceId String? @map("clockify_workspace_id")
 
+  /// Payroll identity. Appears on every invoice PDF and remittance email, so
+  /// it is configuration rather than something hard-coded in a template.
+  businessName    String  @default("JPD Group") @map("business_name")
+  businessAddress String? @map("business_address")
+
+  /// Printed at the foot of an invoice — payment terms, tax notes, whatever
+  /// this business needs to say on the document.
+  invoiceNote String? @map("invoice_note")
+
+  /// Where the payroll run summary goes. The contractor emails go to each
+  /// contractor's own address.
+  adminRemittanceEmail String? @map("admin_remittance_email")
+
+  /// Sender name on remittance emails. The address itself comes from
+  /// RESEND_FROM_EMAIL, which must be on a verified domain.
+  remittanceFromName String @default("JPD Group Payroll") @map("remittance_from_name")
+
+  /// How people are actually paid, stated on the invoice and in the email.
+  remittancePaymentMethod String @default("USDT") @map("remittance_payment_method")
+
+  remittanceFooterNote String? @map("remittance_footer_note")
+
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   updatedById String?  @map("updated_by_id") @db.Uuid
 

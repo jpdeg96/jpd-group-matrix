@@ -336,6 +336,20 @@ export const updateSettingsSchema = z
     // here — it lives in CLOCKIFY_API_KEY so a database dump never carries a
     // live credential.
     clockifyWorkspaceId: z.string().trim().max(64).nullable().optional(),
+
+    // Payroll identity, printed on invoices and remittance emails. The Resend
+    // credential is deliberately absent for the same reason as the Clockify
+    // key: it lives in the environment, never in the database.
+    businessName: z.string().trim().min(1).max(200).optional(),
+    businessAddress: z.string().trim().max(500).nullable().optional(),
+    invoiceNote: z.string().trim().max(1000).nullable().optional(),
+    adminRemittanceEmail: z
+      .union([z.literal(""), z.string().trim().toLowerCase().email().max(254)])
+      .nullable()
+      .optional(),
+    remittanceFromName: z.string().trim().min(1).max(120).optional(),
+    remittancePaymentMethod: z.string().trim().min(1).max(120).optional(),
+    remittanceFooterNote: z.string().trim().max(1000).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "No changes were supplied.",

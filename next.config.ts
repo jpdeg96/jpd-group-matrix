@@ -10,6 +10,16 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+
+  /**
+   * pdfkit must not be bundled.
+   *
+   * It reads its font metrics from disk at runtime — `data/Helvetica.afm`,
+   * resolved relative to its own module. Bundling moves the code into
+   * `.next/server/chunks` without those files, so every invoice PDF fails with
+   * ENOENT. Left external, it loads from node_modules with its data intact.
+   */
+  serverExternalPackages: ["pdfkit"],
 };
 
 export default nextConfig;

@@ -140,6 +140,45 @@ export function PayrollDashboard({
     }
   }
 
+  async function sendRemittance() {
+    setBusy("remittance");
+    try {
+      const { result } = await api.post<{
+        result: {
+          sent: string[];
+          skipped: { contractorName: string; reason: string }[];
+          failed: { contractorName: string; reason: string }[];
+          adminSummarySent: boolean;
+          adminSummaryError: string | null;
+        };
+      }>("/api/payroll/remittance", { payrollPeriodId: periodId });
+
+      if (result.sent.length > 0) {
+        toast.success(`Emailed ${result.sent.join(", ")}.`);
+      } else {
+        toast.toast("Nothing to send — every invoice was skipped.", { tone: "info" });
+      }
+      for (const skip of result.skipped) {
+        toast.toast(`${skip.contractorName}: ${skip.reason}`, { tone: "info" });
+      }
+      // A failed send is money somebody has not been told about, so it is an
+      // error rather than a note.
+      for (const failure of result.failed) {
+        toast.error(`${failure.contractorName}: ${failure.reason}`);
+      }
+      if (result.adminSummaryError) toast.error(`Summary email: ${result.adminSummaryError}`);
+
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        "Could not send remittance.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const outstanding = summary.pending + summary.needsReview;
 
   return (
@@ -191,6 +230,19 @@ export function PayrollDashboard({
                     }
                   >
                     Generate invoices
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={sendRemittance}
+                    loading={busy === "remittance"}
+                    disabled={summary.invoiced === 0}
+                    title={
+                      summary.invoiced === 0
+                        ? "Generate invoices first"
+                        : "Email each contractor their invoice, and send yourself the summary"
+                    }
+                  >
+                    Send remittance
                   </Button>
                 </>
               ) : null}
