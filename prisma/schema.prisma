@@ -115,6 +115,12 @@ model User {
   presence         Presence[]
   auditLogs        AuditLog[]
 
+  /// Payroll. A user may be the person behind a contractor record, and may be
+  /// the manager who signs weeks off — separate relations, since they are
+  /// rarely the same person and must never be conflated.
+  contractor       Contractor?      @relation("ContractorUser")
+  approvedPayroll  WeeklyApproval[] @relation("ApprovalApprover")
+
   @@index([active, displayName])
   @@map("users")
 }
@@ -353,4 +359,230 @@ model AuditLog {
   @@index([entityType, entityId, createdAt(sort: Desc)], map: "audit_logs_entity_idx")
   @@index([createdAt(sort: Desc)], map: "audit_logs_created_at_idx")
   @@map("audit_logs")
+}
+
+/* -------------------------------------------------------------------------- */
+/* Payroll                                                                    */
+/* -------------------------------------------------------------------------- */
+
+enum PayType {
+  /// Paid a fixed amount per week. Hours are recorded but do not drive pay.
+  FLAT_WEEKLY
+  /// Paid per approved hour.
+  HOURLY
+
+  @@map("pay_type")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVIEW
+
+  @@map("approval_status")
+}
+
+enum InvoiceStatus {
+  GENERATED
+  SENT
+  PAID
+  VOID
+
+  @@map("invoice_status")
+}
+
+/// A person paid through payroll. Deliberately separate from `User`: someone
+/// can be paid without having a login, and can have a login without being paid.
+/// `userId` links the two where they happen to be the same person.
+model Contractor {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+
+  /// Whose time to import. Null means they are paid without tracked time.
+  clockifyUserId String? @unique @map("clockify_user_id")
+
+  payType PayType @map("pay_type")
+
+  /// Only meaningful for FLAT_WEEKLY; a CHECK constraint enforces that the one
+  /// matching this pay type is present.
+  weeklyAmount Decimal? @map("weekly_amount") @db.Decimal(12, 2)
+
+  /// Four decimal places: an hourly rate is a rate, not a money amount, and
+  /// rounding it to cents before multiplying loses real money over a week.
+  hourlyRate Decimal? @map("hourly_rate") @db.Decimal(12, 4)
+
+  /// Leading part of every invoice number for this person, e.g. "NAT".
+  invoicePrefix String @unique @map("invoice_prefix")
+
+  active            Boolean @default(true)
+  remittanceEmail   String? @map("remittance_email")
+  discordWebhookUrl String? @map("discord_webhook_url")
+  notes             String?
+
+  userId String? @unique @map("user_id") @db.Uuid
+  user   User?   @relation("ContractorUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  timeEntries ImportedTimeEntry[]
+  approvals   WeeklyApproval[]
+  invoices    Invoice[]
+
+  @@index([active, name])
+  @@map("contractors")
+}
+
+/// One Sunday-to-Saturday pay week.
+model PayrollPeriod {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Sunday. DATE, never a timestamp — a pay week is a calendar fact.
+  periodStart DateTime @unique @map("period_start") @db.Date
+  /// Saturday.
+  periodEnd DateTime @map("period_end") @db.Date
+
+  /// The Friday after `periodEnd`. Stored rather than derived, so a historical
+  /// record keeps the date people were actually told.
+  depositDate DateTime @map("deposit_date") @db.Date
+
+  /// Set when payroll for the week is finished; blocks further import.
+  closedAt DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  timeEntries ImportedTimeEntry[]
+  approvals   WeeklyApproval[]
+  invoices    Invoice[]
+
+  @@index([periodStart(sort: Desc)])
+  @@map("payroll_periods")
+}
+
+/// A raw Clockify entry, kept verbatim for audit. Never edited.
+model ImportedTimeEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  payrollPeriodId String        @map("payroll_period_id") @db.Uuid
+  payrollPeriod   PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Cascade)
+
+  contractorId String     @map("contractor_id") @db.Uuid
+  contractor   Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  /// Clockify's own id. Unique, which is what makes re-importing idempotent
+  /// without the application having to reason about it.
+  clockifyEntryId String @unique @map("clockify_entry_id")
+  clockifyUserId  String @map("clockify_user_id")
+
+  startTime DateTime @map("start_time") @db.Timestamptz(6)
+  endTime   DateTime @map("end_time") @db.Timestamptz(6)
+
+  /// Whole seconds, not fractional hours. Hours are a presentation of this;
+  /// storing them as a float would accumulate error across a week of entries.
+  durationSeconds Int @map("duration_seconds")
+
+  description String?
+
+  importedAt DateTime @default(now()) @map("imported_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([payrollPeriodId, contractorId])
+  @@map("imported_time_entries")
+}
+
+/// One row per contractor per pay week: what they are owed, and whether a
+/// manager has signed it off.
+///
+/// Pay type and rates are snapshotted here rather than read live from the
+/// contractor. Changing someone's rate must not silently restate a week that
+/// has already been approved or paid.
+model WeeklyApproval {
+  id String @id @default(uuid()) @db.Uuid
+
+  payrollPeriodId String        @map("payroll_period_id") @db.Uuid
+  payrollPeriod   PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Cascade)
+
+  contractorId String     @map("contractor_id") @db.Uuid
+  contractor   Contractor @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+
+  payType         PayType  @map("pay_type")
+  clockifySeconds Int      @default(0) @map("clockify_seconds")
+  weeklyAmount    Decimal? @map("weekly_amount") @db.Decimal(12, 2)
+  hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(12, 4)
+
+  /// What this person is owed for the week, already rounded to cents.
+  invoiceAmount Decimal @map("invoice_amount") @db.Decimal(12, 2)
+
+  managerStatus ApprovalStatus @default(PENDING) @map("manager_status")
+
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedBy   User?     @relation("ApprovalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz(6)
+
+  /// Manager's note, e.g. why a row was rejected.
+  reviewNote String? @map("review_note")
+
+  invoiceId String?  @unique @map("invoice_id") @db.Uuid
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([payrollPeriodId, contractorId])
+  @@index([payrollPeriodId, managerStatus])
+  @@map("weekly_approvals")
+}
+
+model Invoice {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// `PREFIX-YYYYMMDD`. Unique, so a duplicate is refused by the database
+  /// rather than by a check the application might forget to make.
+  invoiceNumber String @unique @map("invoice_number")
+
+  contractorId String     @map("contractor_id") @db.Uuid
+  contractor   Contractor @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+
+  payrollPeriodId String        @map("payroll_period_id") @db.Uuid
+  payrollPeriod   PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
+
+  /// Snapshots, as on the approval row.
+  payType         PayType  @map("pay_type")
+  approvedSeconds Int      @default(0) @map("approved_seconds")
+  weeklyAmount    Decimal? @map("weekly_amount") @db.Decimal(12, 2)
+  hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(12, 4)
+
+  amount Decimal @db.Decimal(12, 2)
+
+  pdfUrl      String? @map("pdf_url")
+  documentUrl String? @map("document_url")
+
+  status InvoiceStatus @default(GENERATED)
+
+  paymentDate DateTime? @map("payment_date") @db.Date
+  usdtTxHash  String?   @map("usdt_tx_hash")
+
+  depositDate DateTime @map("deposit_date") @db.Date
+  generatedAt DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  voidedAt   DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason String?   @map("void_reason")
+
+  remittanceSent      Boolean   @default(false) @map("remittance_sent")
+  remittanceSentAt    DateTime? @map("remittance_sent_at") @db.Timestamptz(6)
+  remittanceError     String?   @map("remittance_error")
+  lastRemittanceCheck DateTime? @map("last_remittance_check") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  approval WeeklyApproval?
+
+  @@index([payrollPeriodId, status])
+  @@index([contractorId, generatedAt(sort: Desc)])
+  @@map("invoices")
 }

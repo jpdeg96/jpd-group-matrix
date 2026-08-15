@@ -24,6 +24,9 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Event Dashboard" },
   { href: "/c1", label: "C1" },
   { href: "/metrics", label: "Metrics", managerOnly: true },
+  // Managers approve weeks; only administrators can generate invoices or
+  // record payments, which the payroll screens enforce themselves.
+  { href: "/payroll", label: "Payroll", managerOnly: true },
   { href: "/audit", label: "Audit Log", managerOnly: true },
   { href: "/users", label: "Users", adminOnly: true },
   { href: "/settings", label: "Settings", adminOnly: true },

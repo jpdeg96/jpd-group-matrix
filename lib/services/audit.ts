@@ -20,7 +20,14 @@ export type AuditEntityType =
   | "USER"
   | "SETTINGS"
   | "IMPERSONATION"
-  | "MAINTENANCE";
+  | "MAINTENANCE"
+  // Payroll. Money moves on the back of these, so every import, approval,
+  // invoice and payment is recorded — the audit trail is a requirement of the
+  // module, not a by-product of it.
+  | "CONTRACTOR"
+  | "PAYROLL_PERIOD"
+  | "WEEKLY_APPROVAL"
+  | "INVOICE";
 
 /**
  * A recorded before/after payload.
