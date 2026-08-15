@@ -7,6 +7,7 @@
  * that the column will not hold the value.
  */
 
+import { inflateSync } from "node:zlib";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/db/prisma";
@@ -18,6 +19,8 @@ import {
 import { setApprovalStatus } from "@/lib/services/payroll";
 import { listSeedableUsers, seedContractorsFromUsers } from "@/lib/services/contractors";
 import { sendRemittanceForPeriod } from "@/lib/services/remittance";
+import { buildInvoicePdf } from "@/lib/services/invoice-pdf";
+import { invalidateSettingsCache } from "@/lib/services/settings";
 import type { ActorContext } from "@/lib/auth/actor";
 
 const PERIOD_START = new Date("2026-07-05T00:00:00Z"); // Sunday
@@ -429,6 +432,87 @@ describe("approval safeguards", () => {
     expect(rejected.approvedById).toBeNull();
     expect(rejected.approvedAt).toBeNull();
     expect(rejected.reviewNote).toBe("Hours look wrong");
+  });
+});
+
+describe("the invoice PDF", () => {
+  /** Same technique as the renderer's own tests: inflate, then decode TJ runs. */
+  function extractText(pdf: Buffer): string {
+    const out: string[] = [];
+    let index = 0;
+
+    while (index < pdf.length) {
+      const start = pdf.indexOf(Buffer.from("stream"), index);
+      if (start === -1) break;
+      let from = start + 6;
+      if (pdf[from] === 0x0d) from += 1;
+      if (pdf[from] === 0x0a) from += 1;
+      const end = pdf.indexOf(Buffer.from("endstream"), from);
+      if (end === -1) break;
+      try {
+        out.push(inflateSync(pdf.subarray(from, end)).toString("latin1"));
+      } catch {
+        // Not a Flate stream.
+      }
+      index = end + 1;
+    }
+
+    const decodeHex = (hex: string): string =>
+      (hex.match(/.{2}/g) ?? [])
+        .map((code) => String.fromCharCode(Number.parseInt(code, 16)))
+        .join("");
+
+    return out
+      .join("\n")
+      .replace(/\[([^\]]*)\]\s*TJ/g, (_m, body: string) =>
+        [...body.matchAll(/<([0-9A-Fa-f]+)>/g)].map((m) => decodeHex(m[1]!)).join(""),
+      );
+  }
+
+  it("carries the business details configured in Settings", async () => {
+    // The point of the Settings form: these strings appear on a document that
+    // leaves the business, so a change there has to reach the page.
+    await prisma.settings.upsert({
+      where: { id: "singleton" },
+      update: {
+        businessName: "JPD Group LLC",
+        businessAddress: "500 Ticket Row, Chicago IL",
+        invoiceNote: "Paid in USDT on the Friday following the pay period.",
+        remittancePaymentMethod: "USDT (TRC-20)",
+      },
+      create: {
+        id: "singleton",
+        businessName: "JPD Group LLC",
+        businessAddress: "500 Ticket Row, Chicago IL",
+        invoiceNote: "Paid in USDT on the Friday following the pay period.",
+        remittancePaymentMethod: "USDT (TRC-20)",
+      },
+    });
+    invalidateSettingsCache();
+
+    const actor = await makeActor();
+    const [p, c] = await Promise.all([period(), contractor()]);
+    const row = await prisma.weeklyApproval.create({
+      data: {
+        payrollPeriodId: p.id, contractorId: c.id, payType: "FLAT_WEEKLY",
+        weeklyAmount: new Decimal("750"), invoiceAmount: new Decimal("750"),
+      },
+    });
+    await setApprovalStatus(row.id, "APPROVED", actor);
+    await generateInvoicesForPeriod(p.id, actor);
+
+    const invoice = await prisma.invoice.findFirstOrThrow();
+    const pdf = await buildInvoicePdf(invoice.id);
+    const text = extractText(pdf.bytes);
+
+    expect(pdf.filename).toBe("NAT-20260705.pdf");
+    expect(text).toContain("JPD Group LLC");
+    expect(text).toContain("500 Ticket Row");
+    expect(text).toContain("USDT (TRC-20)");
+    expect(text).toContain("Friday following the pay period");
+    expect(text).toContain("NAT-20260705");
+    expect(text).toContain("Nathaly");
+    expect(text).toContain("750.00");
   });
 });
 

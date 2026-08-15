@@ -22,6 +22,7 @@ import {
 } from "@/lib/domain/constants";
 import type { AppSettings } from "@/lib/services/settings";
 import type { EventTypeView } from "@/lib/services/event-types";
+import { PayrollSettings } from "./payroll-settings";
 
 /** Common zones offered as shortcuts; any IANA name may still be typed. */
 const TIMEZONE_SUGGESTIONS = [
@@ -41,10 +42,14 @@ export function SettingsView({
   settings,
   types,
   clockifyKeyPresent,
+  emailConfigured,
+  emailFrom,
 }: {
   settings: AppSettings;
   types: EventTypeView[];
   clockifyKeyPresent: boolean;
+  emailConfigured: boolean;
+  emailFrom: string | null;
 }) {
   return (
     <div className="space-y-4">
@@ -52,6 +57,11 @@ export function SettingsView({
       <ReviewStageSettings settings={settings} />
       <EventTypeSettings types={types} />
       <ClockifySettings settings={settings} keyPresent={clockifyKeyPresent} />
+      <PayrollSettings
+        settings={settings}
+        emailConfigured={emailConfigured}
+        emailFrom={emailFrom}
+      />
     </div>
   );
 }
