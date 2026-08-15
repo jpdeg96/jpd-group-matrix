@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-15-payroll",
+    date: "Aug 15, 2026",
+    kind: "added",
+    title: "Payroll",
+    body: "A new Payroll tab replaces the payroll spreadsheet. Import a week's Clockify time, review each contractor's hours and pay, approve them, and generate invoices — with payment and USDT transaction hashes recorded against each one. Managers review and approve; administrators import, invoice and record payments.",
+  },
+  {
     id: "2026-08-14-week-runs-sunday",
     date: "Aug 14, 2026",
     kind: "changed",

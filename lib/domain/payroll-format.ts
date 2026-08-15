@@ -68,3 +68,17 @@ export function formatMoney(amount: string): string {
   if (!Number.isFinite(value)) return amount;
   return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+/**
+ * An hourly rate, without the padding: `3.1300` → `3.13`, `3.1250` → `3.125`.
+ *
+ * Rates are stored to four places so a fraction of a cent per hour is not lost
+ * before it is multiplied across a week. Showing those trailing zeros is just
+ * noise — but a rate that genuinely uses them still displays in full, because
+ * silently truncating the number somebody is paid at would be worse.
+ */
+export function formatRate(rate: string): string {
+  const value = Number(rate);
+  if (!Number.isFinite(value)) return rate;
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
