@@ -54,7 +54,7 @@ export async function archiveInvoice(invoiceId: string): Promise<ArchiveOutcome>
     const pdf = await buildInvoicePdf(invoiceId);
     const result = await uploadPdf({
       folderId: settings.driveFolderId,
-      filename: pdf.filename,
+      filename: pdf.driveFilename,
       bytes: pdf.bytes,
     });
 

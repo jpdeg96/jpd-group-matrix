@@ -230,6 +230,21 @@ export function parseInvoiceNumber(
  * A suggestion, not a decision: the prefix appears on every invoice that
  * person ever issues, so the screen offers this and lets it be overridden.
  */
+/**
+ * The filename an invoice is filed under in Drive: `YYMMDD INV-NUMBER.pdf`.
+ *
+ * Dated by the deposit date rather than the pay period, so a folder listed
+ * alphabetically is also listed by payment run — and so the prefix carries
+ * something the invoice number does not, since the number already ends in the
+ * period start.
+ *
+ * Two-digit years sort correctly until 2100 and this is a folder of invoices,
+ * not an archive format.
+ */
+export function driveFileNameFor(invoiceNumber: string, depositDate: PlainDate): string {
+  return `${depositDate.slice(2).replaceAll("-", "")} ${invoiceNumber}.pdf`;
+}
+
 export function suggestInvoicePrefix(name: string, taken: Iterable<string>): string {
   const used = new Set([...taken].map((value) => value.trim().toUpperCase()));
   const letters = name.toUpperCase().replace(/[^A-Z0-9]/g, "");

@@ -10,6 +10,7 @@ import {
   formatHours,
   hoursFromSeconds,
   InvalidInvoicePrefixError,
+  driveFileNameFor,
   invoiceNumberFor,
   parseInvoiceNumber,
   payPeriodContaining,
@@ -196,6 +197,50 @@ describe("calculatePay", () => {
     expect(
       calculatePay({ payType: "FLAT_WEEKLY", seconds: 0, weeklyAmount: null, hourlyRate: null }).toFixed(2),
     ).toBe("0.00");
+  });
+});
+
+describe("drive file names", () => {
+  it("is YYMMDD then the invoice number", () => {
+    expect(driveFileNameFor("JPD-20260802", d("2026-08-14"))).toBe("260814 JPD-20260802.pdf");
+  });
+
+  it("dates by deposit, not by the week inside the number", () => {
+    // The number already ends in the period start. Prefixing with the deposit
+    // date is what makes the prefix carry something new.
+    expect(driveFileNameFor("JPD-20260802", d("2026-08-14"))).not.toContain("260802 ");
+  });
+
+  it("sorts a folder into payment-run order alphabetically", () => {
+    const names = [
+      driveFileNameFor("JPD-20260809", d("2026-08-21")),
+      driveFileNameFor("NES-20260802", d("2026-08-14")),
+      driveFileNameFor("JPD-20260802", d("2026-08-14")),
+    ];
+    expect([...names].sort()).toEqual([
+      "260814 JPD-20260802.pdf",
+      "260814 NES-20260802.pdf",
+      "260821 JPD-20260809.pdf",
+    ]);
+  });
+
+  it("keeps a reissue beside the invoice it replaces", () => {
+    expect(driveFileNameFor("JPD-20260802-R2", d("2026-08-14"))).toBe(
+      "260814 JPD-20260802-R2.pdf",
+    );
+  });
+
+  it("pads single-digit months and days", () => {
+    // A stray unpadded value would break the sort for a whole month.
+    expect(driveFileNameFor("JPD-20260104", d("2026-01-09"))).toBe("260109 JPD-20260104.pdf");
+  });
+
+  it("keeps two-digit years sorting across a decade boundary", () => {
+    const names = [
+      driveFileNameFor("JPD-20300101", d("2030-01-04")),
+      driveFileNameFor("JPD-20291225", d("2029-12-28")),
+    ];
+    expect([...names].sort()[0]).toContain("291228");
   });
 });
 

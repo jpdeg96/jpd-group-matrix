@@ -11,11 +11,20 @@ import { notFound } from "@/lib/errors";
 import { getSettings } from "./settings";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
 import { plainDateFromDbDate } from "@/lib/date/plain-date";
+import { driveFileNameFor } from "@/lib/domain/payroll";
 import type { PayType } from "@/lib/domain/payroll-format";
 
-export async function buildInvoicePdf(
-  invoiceId: string,
-): Promise<{ bytes: Buffer; filename: string }> {
+export async function buildInvoicePdf(invoiceId: string): Promise<{
+  bytes: Buffer;
+  /** What a browser saves it as. Keyed to the invoice number people quote. */
+  filename: string;
+  /**
+   * What it is filed as in Drive: `YYMMDD INV-NUMBER.pdf`, dated by deposit.
+   * Different from `filename` on purpose — a download wants the name someone
+   * asked for, a shared folder wants to sort by payment run.
+   */
+  driveFilename: string;
+}> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -58,5 +67,11 @@ export async function buildInvoicePdf(
     invoiceNote: settings.invoiceNote,
   });
 
-  return { bytes, filename: `${invoice.invoiceNumber}.pdf` };
+  const depositDate = plainDateFromDbDate(invoice.depositDate);
+
+  return {
+    bytes,
+    filename: `${invoice.invoiceNumber}.pdf`,
+    driveFilename: driveFileNameFor(invoice.invoiceNumber, depositDate),
+  };
 }
