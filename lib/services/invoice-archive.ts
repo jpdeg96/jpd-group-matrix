@@ -105,3 +105,68 @@ export async function archiveInvoices(invoiceIds: string[]): Promise<ArchiveOutc
   }
   return outcomes;
 }
+
+/**
+ * How many invoices have no copy in Drive.
+ *
+ * Counts everything ever issued, including voided ones: a voided invoice is
+ * still part of the record, and the PDF stamps VOID across itself, so the
+ * folder is complete without being misleading. Ones that previously failed are
+ * counted too — they are exactly what a retry is for.
+ */
+export function countUnfiled(): Promise<number> {
+  return prisma.invoice.count({ where: { driveFileId: null } });
+}
+
+/**
+ * Rendering and filing every invoice generated before archiving was switched on
+ * takes seconds each, so a single request cannot safely do an unbounded number
+ * of them. This does a batch and reports what is left; pressing again continues.
+ */
+const BATCH_SIZE = 25;
+
+export interface BackfillResult {
+  uploaded: number;
+  failed: number;
+  /** Still without a copy after this batch. */
+  remaining: number;
+  /** First failure, so a systemic problem is visible without a log dive. */
+  firstError: string | null;
+}
+
+/**
+ * Files invoices that predate Drive archiving being switched on.
+ *
+ * Oldest first, so the folder fills in the order the invoices were issued
+ * rather than backwards. Safe to run repeatedly — anything already filed is
+ * skipped by the query, and an upload replaces its own file rather than adding
+ * a second one.
+ */
+export async function backfillArchive(): Promise<BackfillResult> {
+  const settings = await getSettings();
+
+  if (!settings.driveUploadEnabled || !settings.driveFolderId) {
+    throw new Error("Switch on Drive archiving and set a folder first.");
+  }
+
+  const pending = await prisma.invoice.findMany({
+    where: { driveFileId: null },
+    orderBy: { generatedAt: "asc" },
+    take: BATCH_SIZE,
+    select: { id: true },
+  });
+
+  const outcomes: ArchiveOutcome[] = [];
+  for (const invoice of pending) {
+    outcomes.push(await archiveInvoice(invoice.id));
+  }
+
+  const failures = outcomes.filter((outcome) => !outcome.uploaded);
+
+  return {
+    uploaded: outcomes.filter((outcome) => outcome.uploaded).length,
+    failed: failures.length,
+    remaining: await countUnfiled(),
+    firstError: failures[0]?.error ?? null,
+  };
+}

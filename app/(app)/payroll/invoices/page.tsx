@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getActorContext } from "@/lib/auth/guards";
 import { canAssignOthers } from "@/lib/domain/constants";
 import { listInvoices } from "@/lib/services/invoices";
+import { isArchivingEnabled } from "@/lib/services/invoice-archive";
 import { plainDateFromDbDate } from "@/lib/date/plain-date";
 import { InvoicesView } from "@/components/payroll/invoices-view";
 
@@ -12,11 +13,12 @@ export default async function InvoicesPage() {
   if (!actor) redirect("/sign-in");
   if (!canAssignOthers(actor.effective.role)) redirect("/dashboard");
 
-  const invoices = await listInvoices();
+  const [invoices, driveEnabled] = await Promise.all([listInvoices(), isArchivingEnabled()]);
 
   return (
     <InvoicesView
       isAdmin={actor.effective.role === "ADMIN"}
+      driveEnabled={driveEnabled}
       invoices={invoices.map((invoice) => ({
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,

@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-backfill-invoices",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "Older invoices can be filed into Drive too",
+    body: "The Invoices screen has a File to Drive button whenever any invoice has no copy in the folder — invoices issued before Drive archiving was switched on, and any whose upload failed. It works in batches and tells you how many are left; press it again to continue.",
+  },
+  {
     id: "2026-08-16-integrations",
     date: "Aug 16, 2026",
     kind: "added",

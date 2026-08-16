@@ -187,6 +187,33 @@ export interface UploadResult {
 }
 
 /**
+ * A `multipart/related` body: JSON metadata, then the file bytes.
+ *
+ * Exported so it can be tested. Every rule here is one Drive rejects the whole
+ * upload over — CRLF rather than LF, a blank line after each part's headers,
+ * and the closing delimiter carrying trailing dashes — and none of them are
+ * visible in a wrong-looking way if you get them wrong.
+ *
+ * Assembled through Buffer rather than a string because the PDF is binary: a
+ * template literal would put it through UTF-8 encoding and corrupt it.
+ */
+export function buildMultipartBody(
+  metadata: object,
+  bytes: Buffer,
+  boundary: string,
+): Buffer {
+  return Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+        `${JSON.stringify(metadata)}\r\n` +
+        `--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
+    ),
+    bytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+}
+
+/**
  * Uploads one PDF into `folderId`, replacing any file of the same name.
  *
  * Replacing rather than versioning is deliberate: a reissued invoice keeps its
@@ -207,15 +234,7 @@ export async function uploadPdf(input: {
     : { name: input.filename, parents: [input.folderId], mimeType: "application/pdf" };
 
   const boundary = `matrix-${Date.now().toString(36)}`;
-  const body = Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-        `${JSON.stringify(metadata)}\r\n` +
-        `--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
-    ),
-    input.bytes,
-    Buffer.from(`\r\n--${boundary}--\r\n`),
-  ]);
+  const body = buildMultipartBody(metadata, input.bytes, boundary);
 
   const url = new URL(existingId ? `${UPLOAD_URL}/${existingId}` : UPLOAD_URL);
   url.searchParams.set("uploadType", "multipart");

@@ -55,9 +55,12 @@ const STATUS_TONE: Record<InvoiceStatus, string> = {
 export function InvoicesView({
   isAdmin,
   invoices,
+  driveEnabled,
 }: {
   isAdmin: boolean;
   invoices: Invoice[];
+  /** Drive archiving is on and a folder is set, so filing is possible. */
+  driveEnabled: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -65,6 +68,45 @@ export function InvoicesView({
   const [paying, setPaying] = React.useState<Invoice | null>(null);
   const [voiding, setVoiding] = React.useState<Invoice | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [filing, setFiling] = React.useState(false);
+
+  // Invoices issued before archiving was switched on, plus any whose upload
+  // failed. Both are "no copy in Drive", so one action covers both.
+  const unfiled = invoices.filter((invoice) => invoice.driveWebLink === null).length;
+
+  async function fileToDrive() {
+    setFiling(true);
+    try {
+      const result = await api.post<{
+        uploaded: number;
+        failed: number;
+        remaining: number;
+        firstError: string | null;
+      }>("/api/payroll/invoices/archive", {});
+
+      if (result.failed > 0) {
+        toast.error(
+          `Filed ${result.uploaded}, ${result.failed} failed.`,
+          result.firstError ?? undefined,
+        );
+      } else if (result.remaining > 0) {
+        // Deliberately not looping on its own: each batch is a request that
+        // could fail, and a person pressing again knows it is still going.
+        toast.success(`Filed ${result.uploaded}. ${result.remaining} to go — press again.`);
+      } else {
+        toast.success(`Filed ${result.uploaded} to Drive. All invoices now have a copy.`);
+      }
+
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        "Could not file invoices to Drive.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setFiling(false);
+    }
+  }
 
   const live = invoices.filter((invoice) => invoice.status !== "VOID");
   const totals = live.reduce(
@@ -137,9 +179,21 @@ export function InvoicesView({
         }
         actions={
           invoices.length > 0 ? (
-            <Button size="sm" onClick={exportCsv}>
-              Export CSV
-            </Button>
+            <>
+              {isAdmin && driveEnabled && unfiled > 0 ? (
+                <Button
+                  size="sm"
+                  loading={filing}
+                  onClick={fileToDrive}
+                  title="Uploads every invoice that has no copy in Drive — including ones issued before archiving was switched on, and any whose upload failed."
+                >
+                  File {unfiled} to Drive
+                </Button>
+              ) : null}
+              <Button size="sm" onClick={exportCsv}>
+                Export CSV
+              </Button>
+            </>
           ) : null
         }
       />

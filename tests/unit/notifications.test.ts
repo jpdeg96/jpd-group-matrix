@@ -12,7 +12,7 @@ import type { Announcement } from "@/lib/domain/announcements";
 import { releasesSince } from "@/lib/notify/watchers";
 import { clockifyHealthMessage, payrollMessage, releaseMessage } from "@/lib/notify/messages";
 import { normaliseDriveFolderId } from "@/lib/services/settings";
-import { buildJwtClaims } from "@/lib/services/google-drive";
+import { buildJwtClaims, buildMultipartBody } from "@/lib/services/google-drive";
 
 const entry = (id: string, title = id): Announcement => ({
   id,
@@ -152,5 +152,49 @@ describe("buildJwtClaims", () => {
   it("expires an hour out, which is Google's maximum", () => {
     const claims = buildJwtClaims("bot@example.com", 1_000);
     expect(claims.exp - claims.iat).toBe(3600);
+  });
+});
+
+describe("buildMultipartBody", () => {
+  // Bytes that are not valid UTF-8. If the body were ever assembled as a
+  // string these would be replaced with U+FFFD and the PDF would arrive
+  // corrupt — which Drive accepts happily and only a reader notices.
+  const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80]);
+  const body = buildMultipartBody({ name: "JPD-20260810.pdf" }, bytes, "bnd");
+
+  it("preserves the file bytes exactly", () => {
+    expect(body.includes(bytes)).toBe(true);
+    // Present once and unaltered: find it, and check the slice matches.
+    const at = body.indexOf(bytes);
+    expect(body.subarray(at, at + bytes.length).equals(bytes)).toBe(true);
+  });
+
+  it("separates every line with CRLF, never a bare LF", () => {
+    const text = body.toString("latin1");
+    // Strip the binary payload before counting, so its stray 0x0a bytes — if
+    // any — are not mistaken for line endings.
+    const framing = text.slice(0, text.indexOf("%PDF")) + text.slice(text.lastIndexOf("--bnd--"));
+    expect(framing.includes("\n")).toBe(true);
+    expect(/[^\r]\n/.test(framing)).toBe(false);
+  });
+
+  it("puts a blank line between each part's headers and its content", () => {
+    const text = body.toString("latin1");
+    expect(text).toContain("Content-Type: application/json; charset=UTF-8\r\n\r\n{");
+    expect(text).toContain("Content-Type: application/pdf\r\n\r\n%PDF");
+  });
+
+  it("opens each part and closes the whole body with the delimiter", () => {
+    const text = body.toString("latin1");
+    expect(text.startsWith("--bnd\r\n")).toBe(true);
+    // The trailing dashes are what mark the end; without them Drive waits for
+    // a part that never comes.
+    expect(text.endsWith("\r\n--bnd--\r\n")).toBe(true);
+    expect(text.split("--bnd").length - 1).toBe(3);
+  });
+
+  it("carries the metadata as JSON", () => {
+    const text = body.toString("latin1");
+    expect(text).toContain('{"name":"JPD-20260810.pdf"}');
   });
 });
