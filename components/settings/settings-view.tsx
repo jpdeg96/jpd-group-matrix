@@ -23,6 +23,7 @@ import {
 import type { AppSettings } from "@/lib/services/settings";
 import type { EventTypeView } from "@/lib/services/event-types";
 import { PayrollSettings } from "./payroll-settings";
+import { IntegrationSettings } from "./integration-settings";
 
 /** Common zones offered as shortcuts; any IANA name may still be typed. */
 const TIMEZONE_SUGGESTIONS = [
@@ -44,12 +45,16 @@ export function SettingsView({
   clockifyKeyPresent,
   emailConfigured,
   emailFrom,
+  driveKeyPresent,
+  discordWebhookPresent,
 }: {
   settings: AppSettings;
   types: EventTypeView[];
   clockifyKeyPresent: boolean;
   emailConfigured: boolean;
   emailFrom: string | null;
+  driveKeyPresent: boolean;
+  discordWebhookPresent: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -61,6 +66,11 @@ export function SettingsView({
         settings={settings}
         emailConfigured={emailConfigured}
         emailFrom={emailFrom}
+      />
+      <IntegrationSettings
+        settings={settings}
+        driveKeyPresent={driveKeyPresent}
+        discordWebhookPresent={discordWebhookPresent}
       />
     </div>
   );

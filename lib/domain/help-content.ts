@@ -295,6 +295,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "A short summary of changes appears the next time you load the app after an update. Dismiss it and it will not come back.",
       },
       {
+        term: "Where invoices are filed",
+        detail:
+          "When Drive archiving is switched on, every invoice PDF is copied into a Google Drive folder as it is generated, and the Invoices screen shows a Drive link beside the PDF link. If it says \"not filed\", hover it — the reason is there, and an administrator can retry. An invoice is still generated and still emailed either way.",
+      },
+      {
         term: "The Legacy badge",
         detail:
           "Marks an event brought over from the old PhantomChecker spreadsheet rather than created here. Those rows have no assignee, nobody named against a completion and no author on their notes — the spreadsheet never recorded any of that. Everything it did record is there. They are otherwise ordinary events: assign them, tick them, note them as usual.",

@@ -350,10 +350,29 @@ export const updateSettingsSchema = z
     remittanceFromName: z.string().trim().min(1).max(120).optional(),
     remittancePaymentMethod: z.string().trim().min(1).max(120).optional(),
     remittanceFooterNote: z.string().trim().max(1000).nullable().optional(),
+
+    // Same rule again for both integrations: the switch and the folder are
+    // settable, the credentials are not. A Drive folder id is not secret — it
+    // is in the folder's own URL — but a service-account key and a Discord
+    // webhook URL both are, so they stay in the environment.
+    driveUploadEnabled: z.boolean().optional(),
+    driveFolderId: z
+      .union([z.literal(""), z.string().trim().max(200)])
+      .nullable()
+      .optional(),
+    discordEnabled: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "No changes were supplied.",
   });
+
+/**
+ * The folder to probe. Accepts a pasted Drive URL as well as a bare id —
+ * `normaliseDriveFolderId` extracts it — so the length allows for a full URL.
+ */
+export const driveTestSchema = z.object({
+  folderId: z.string().trim().min(1, "Enter the folder ID first.").max(500),
+});
 
 /* -------------------------------------------------------------------------- */
 /* Import                                                                     */

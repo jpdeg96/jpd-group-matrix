@@ -140,7 +140,9 @@
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); Set-Location \"C:\\\\Users\\\\jpdeg\\\\Downloads\\\\beta_phantomchecker-events\"; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if\\($c\\){ $c.OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue } }; Start-Sleep -Seconds 3; npm run build 2>&1 | Select-String -Pattern \"Failed|error TS|/help\" | Select-Object -First 5; \"build done\"; Start-Process powershell -ArgumentList \"-NoProfile\",\"-Command\",\"Set-Location 'C:\\\\Users\\\\jpdeg\\\\Downloads\\\\beta_phantomchecker-events'; npm start\" -WindowStyle Hidden; Start-Sleep -Seconds 8; \"server up\")",
       "PowerShell($src = \"C:\\\\Users\\\\jpdeg\\\\Downloads\\\\PhantomChecker Events.xlsx\"; if \\(-not \\(Test-Path $src\\)\\) { \"FILE NOT FOUND\"; exit }; $info = Get-Item $src; \"size: $\\([math]::Round\\($info.Length/1KB,1\\)\\) KB\"; \"modified: $\\($info.LastWriteTime\\)\"; $work = \"C:\\\\Users\\\\jpdeg\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\xlsx-extract\"; if \\(Test-Path $work\\) { Remove-Item $work -Recurse -Force }; New-Item -ItemType Directory -Force -Path $work | Out-Null; Copy-Item $src \"$work\\\\book.zip\"; Expand-Archive -Path \"$work\\\\book.zip\" -DestinationPath \"$work\\\\out\" -Force; Get-ChildItem \"$work\\\\out\" -Recurse -File | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"$work\\\\out\\\\\",\"\"\\) })",
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='cmd';e={$_.CommandLine.Substring\\(0, [Math]::Min\\(110, $_.CommandLine.Length\\)\\)}} | Format-Table -AutoSize -Wrap)",
-      "PowerShell(Stop-Process -Id 30004,5908 -Force -ErrorAction SilentlyContinue)"
+      "PowerShell(Stop-Process -Id 30004,5908 -Force -ErrorAction SilentlyContinue)",
+      "Bash(curl -s -i http://localhost:3000/api/health)",
+      "Bash(curl -s http://localhost:3000/api/health)"
     ]
   }
 }

@@ -31,6 +31,8 @@ export default async function InvoicesPage() {
         paymentDate: invoice.paymentDate ? plainDateFromDbDate(invoice.paymentDate) : null,
         usdtTxHash: invoice.usdtTxHash,
         voidReason: invoice.voidReason,
+        driveWebLink: invoice.driveWebLink,
+        driveError: invoice.driveError,
         generatedAt: invoice.generatedAt.toISOString(),
       }))}
     />

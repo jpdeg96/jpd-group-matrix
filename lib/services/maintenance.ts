@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { dbDateFromPlainDate, type PlainDate } from "@/lib/date/plain-date";
 import { businessToday } from "./settings";
 import { sweepExpiredPresence } from "./presence";
+import { announceNewReleases, checkClockifyHealth } from "@/lib/notify/watchers";
 import { recordAudit } from "./audit";
 
 export interface MaintenanceResult {
@@ -25,6 +26,10 @@ export interface MaintenanceResult {
   eventsArchived: number;
   /** C1 stages past their review due date and still pending. */
   overdueStages: number;
+  /** Release notes posted to Discord by this run. */
+  releasesAnnounced: number;
+  /** Whether Clockify's reachability changed since the last run. */
+  clockifyHealthChanged: boolean;
 }
 
 /**
@@ -82,6 +87,18 @@ export async function runMaintenance(
   const eventsArchived = await archivePastEvents(today);
   const { overdueStages } = await countSlippage(today);
 
+  // Notifications are the last thing and never the reason a run fails: the
+  // sweeping and archiving above are what the job is actually for, and they
+  // have already happened by this point.
+  let releasesAnnounced = 0;
+  let clockifyHealthChanged = false;
+  try {
+    releasesAnnounced = (await announceNewReleases()).posted;
+    clockifyHealthChanged = (await checkClockifyHealth()).changed;
+  } catch (error) {
+    console.warn("[maintenance] notifications skipped", error);
+  }
+
   const finishedAt = new Date();
 
   const result: MaintenanceResult = {
@@ -92,6 +109,8 @@ export async function runMaintenance(
     presenceCleared,
     eventsArchived,
     overdueStages,
+    releasesAnnounced,
+    clockifyHealthChanged,
   };
 
   console.info("[maintenance] completed", result);

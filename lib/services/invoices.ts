@@ -23,11 +23,14 @@ import {
   type PayType,
 } from "@/lib/domain/payroll";
 import { dbDateFromPlainDate, plainDateFromDbDate, toPlainDate } from "@/lib/date/plain-date";
+import { archiveInvoices } from "./invoice-archive";
 
 export interface GenerateResult {
   generated: { invoiceNumber: string; contractorName: string; amount: string }[];
   /** Rows that could not be invoiced, and why. */
   skipped: { contractorName: string; reason: string }[];
+  /** How many PDFs reached Google Drive, when archiving is switched on. */
+  archived?: { uploaded: number; failed: number };
 }
 
 /**
@@ -56,6 +59,8 @@ export async function generateInvoicesForPeriod(
   const periodEnd = plainDateFromDbDate(period.periodEnd);
 
   const result: GenerateResult = { generated: [], skipped: [] };
+  /** Ids of what this run created, so only those are filed into Drive. */
+  const generatedIds: string[] = [];
 
   for (const row of rows) {
     if (
@@ -162,6 +167,7 @@ export async function generateInvoicesForPeriod(
         contractorName: row.contractor.name,
         amount: invoice.amount.toFixed(2),
       });
+      generatedIds.push(invoice.id);
     } catch (error) {
       // The unique constraints doing their job — another request got there
       // first. Reported rather than raised: the rest of the run should finish.
@@ -177,6 +183,18 @@ export async function generateInvoicesForPeriod(
       }
       throw error;
     }
+  }
+
+  // Filing the PDFs happens after every invoice exists, and cannot undo any of
+  // them. Drive being down means an invoice with no copy in the folder, which
+  // the Invoices screen shows and an administrator can retry — not a payroll
+  // run that failed.
+  const outcomes = await archiveInvoices(generatedIds);
+  if (outcomes.length > 0) {
+    result.archived = {
+      uploaded: outcomes.filter((outcome) => outcome.uploaded).length,
+      failed: outcomes.filter((outcome) => !outcome.uploaded).length,
+    };
   }
 
   return result;

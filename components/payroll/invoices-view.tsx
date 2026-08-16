@@ -39,6 +39,10 @@ interface Invoice {
   usdtTxHash: string | null;
   voidReason: string | null;
   generatedAt: string;
+  /** Set once the PDF reached Google Drive. */
+  driveWebLink: string | null;
+  /** Why the last upload failed. Shown so it can be acted on, not buried. */
+  driveError: string | null;
 }
 
 const STATUS_TONE: Record<InvoiceStatus, string> = {
@@ -150,7 +154,7 @@ export function InvoicesView({
           <table className="w-full min-w-[1250px] border-collapse text-left">
             <thead style={{ background: "var(--canvas)" }}>
               <tr>
-                {["Invoice", "Contractor", "Period", "Hours", "Amount", "Status", "Deposit", "Paid", "USDT tx", "PDF", ""].map(
+                {["Invoice", "Contractor", "Period", "Hours", "Amount", "Status", "Deposit", "Paid", "USDT tx", "PDF", "Drive", ""].map(
                   (label, index) => (
                     <th
                       key={label || index}
@@ -236,6 +240,30 @@ export function InvoicesView({
                       >
                         PDF
                       </a>
+                    </td>
+                    <td className="px-3 py-2">
+                      {invoice.driveWebLink ? (
+                        <a
+                          href={invoice.driveWebLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded border px-2 py-0.5 text-[11px] font-medium"
+                          style={{ borderColor: "var(--line-strong)", color: "var(--accent)" }}
+                          title="Open the copy filed in Google Drive"
+                        >
+                          Drive
+                        </a>
+                      ) : invoice.driveError ? (
+                        <span
+                          className="text-[11px]"
+                          style={{ color: "var(--warn)" }}
+                          title={invoice.driveError}
+                        >
+                          not filed
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--ink-subtle)" }}>—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {isAdmin && !voided ? (

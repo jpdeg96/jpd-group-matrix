@@ -45,6 +45,33 @@ export interface AppSettings {
   remittanceFromName: string;
   remittancePaymentMethod: string;
   remittanceFooterNote: string | null;
+
+  /** Google Drive archiving. The service-account key stays in the environment. */
+  driveUploadEnabled: boolean;
+  driveFolderId: string | null;
+
+  /** Discord notifications. The webhook URL stays in the environment. */
+  discordEnabled: boolean;
+  /** Newest announcement already posted, so a release is announced once. */
+  discordLastReleaseId: string | null;
+
+  /** Last observed Clockify reachability; null until first probed. */
+  clockifyHealthy: boolean | null;
+}
+
+/**
+ * Accepts a pasted Drive folder URL as well as a bare id.
+ *
+ * Copying the address bar is the obvious thing to do, and rejecting it — or
+ * worse, storing it and failing later with "no folder with that ID" — makes
+ * this look broken when the person did the sensible thing.
+ */
+export function normaliseDriveFolderId(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed)
+    ? (/\/folders\/([^/?#]+)/.exec(trimmed)?.[1] ?? trimmed)
+    : trimmed;
 }
 
 const CACHE_TTL_MS = 5_000;
@@ -89,6 +116,11 @@ export async function getSettings(): Promise<AppSettings> {
     stubHubLinksEnabled: row.stubHubLinksEnabled,
     clockifyEnabled: row.clockifyEnabled,
     clockifyWorkspaceId: row.clockifyWorkspaceId,
+    driveUploadEnabled: row.driveUploadEnabled,
+    driveFolderId: row.driveFolderId,
+    discordEnabled: row.discordEnabled,
+    discordLastReleaseId: row.discordLastReleaseId,
+    clockifyHealthy: row.clockifyHealthy,
   };
 
   cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
@@ -136,6 +168,11 @@ export interface UpdateSettingsInput {
   remittanceFromName?: string;
   remittancePaymentMethod?: string;
   remittanceFooterNote?: string | null;
+
+  /** Integration switches. Credentials are not here, by design. */
+  driveUploadEnabled?: boolean;
+  driveFolderId?: string | null;
+  discordEnabled?: boolean;
 }
 
 /**
@@ -205,6 +242,15 @@ export async function updateSettings(
         : {}),
       ...(input.clockifyEnabled !== undefined
         ? { clockifyEnabled: input.clockifyEnabled }
+        : {}),
+      ...(input.driveUploadEnabled !== undefined
+        ? { driveUploadEnabled: input.driveUploadEnabled }
+        : {}),
+      ...(input.driveFolderId !== undefined
+        ? { driveFolderId: normaliseDriveFolderId(input.driveFolderId) }
+        : {}),
+      ...(input.discordEnabled !== undefined
+        ? { discordEnabled: input.discordEnabled }
         : {}),
       ...(input.businessName !== undefined ? { businessName: input.businessName } : {}),
       ...(input.businessAddress !== undefined

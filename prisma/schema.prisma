@@ -361,6 +361,30 @@ model Settings {
 
   remittanceFooterNote String? @map("remittance_footer_note")
 
+  /// Copy every invoice PDF into a Google Drive folder as it is generated.
+  /// The service-account key is NOT stored here — it lives in
+  /// GOOGLE_SERVICE_ACCOUNT_JSON, same rule as every other credential. The
+  /// folder ID is not secret: it is visible in the folder's own URL.
+  driveUploadEnabled Boolean @default(false) @map("drive_upload_enabled")
+  driveFolderId      String? @map("drive_folder_id")
+
+  /// Post releases, payroll runs and Clockify outages to a Discord channel.
+  /// The webhook URL is itself the credential and lives in
+  /// DISCORD_WEBHOOK_URL.
+  discordEnabled Boolean @default(false) @map("discord_enabled")
+
+  /// The newest announcement already posted to Discord. This is what makes
+  /// release notification idempotent: the hourly run posts what has appeared
+  /// since, so a restart, a redeploy or two instances racing cannot announce
+  /// the same release twice.
+  discordLastReleaseId String? @map("discord_last_release_id")
+
+  /// Last known Clockify reachability. NULL until first probed. Kept so that
+  /// only *changes* are announced — repeating "still down" hourly is how a
+  /// channel gets muted.
+  clockifyHealthy          Boolean?  @map("clockify_healthy")
+  clockifyHealthCheckedAt  DateTime? @map("clockify_health_checked_at") @db.Timestamptz(6)
+
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   updatedById String?  @map("updated_by_id") @db.Uuid
 
@@ -591,6 +615,16 @@ model Invoice {
 
   pdfUrl      String? @map("pdf_url")
   documentUrl String? @map("document_url")
+
+  /// Copy in Google Drive, when that is switched on. Nullable throughout:
+  /// Drive being unreachable must never stop an invoice being generated or
+  /// emailed, so the upload is a follow-on that can be retried, not a step the
+  /// invoice depends on.
+  driveFileId     String?   @map("drive_file_id")
+  driveWebLink    String?   @map("drive_web_link")
+  driveUploadedAt DateTime? @map("drive_uploaded_at") @db.Timestamptz(6)
+  /// Why the last upload attempt failed, for the administrator to act on.
+  driveError      String?   @map("drive_error")
 
   status InvoiceStatus @default(GENERATED)
 

@@ -27,6 +27,8 @@ import {
   PAY_TYPE_LABELS,
   type PayType,
 } from "@/lib/domain/payroll-format";
+import { notify } from "@/lib/notify/discord";
+import { payrollMessage } from "@/lib/notify/messages";
 
 export interface RemittanceResult {
   sent: string[];
@@ -218,6 +220,26 @@ export async function sendRemittanceForPeriod(
       adminSummarySent: result.adminSummarySent,
     },
   });
+
+  // Announced after the audit entry, and never allowed to affect the outcome:
+  // the money has been sent by this point, and a chat message failing must not
+  // present itself as a failed payroll run.
+  if (settings.discordEnabled) {
+    await notify(
+      payrollMessage({
+        periodLabel: `${formatPlainDate(periodStart)} – ${formatPlainDate(periodEnd)}`,
+        sent: result.sent.length,
+        skipped: result.skipped.length,
+        failed: result.failed.length,
+        total: `$${formatMoney(
+          invoices
+            .reduce((sum, invoice) => sum.plus(invoice.amount), new Decimal(0))
+            .toFixed(2),
+        )}`,
+        sentBy: actor.effective.displayName,
+      }),
+    );
+  }
 
   return result;
 }

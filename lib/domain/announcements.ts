@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-integrations",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "Invoices file themselves into Drive, and Discord gets the news",
+    body: "Every invoice PDF is now copied into a Google Drive folder as it is generated, with a Drive link beside the PDF link on the Invoices screen. Discord gets a post when a release goes live, when payroll remittance is sent, and when Clockify stops or starts responding. Both are switched on in Settings and neither can hold up the work it reports on — an invoice still generates and still emails if Drive is down.",
+  },
+  {
     id: "2026-08-16-c1-opens-on-today",
     date: "Aug 16, 2026",
     kind: "changed",
