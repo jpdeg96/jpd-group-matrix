@@ -12,7 +12,11 @@ import type { Announcement } from "@/lib/domain/announcements";
 import { releasesSince } from "@/lib/notify/watchers";
 import { clockifyHealthMessage, payrollMessage, releaseMessage } from "@/lib/notify/messages";
 import { normaliseDriveFolderId } from "@/lib/services/settings";
-import { buildJwtClaims, buildMultipartBody } from "@/lib/services/google-drive";
+import {
+  buildJwtClaims,
+  buildMultipartBody,
+  describeDriveError,
+} from "@/lib/services/google-drive";
 
 const entry = (id: string, title = id): Announcement => ({
   id,
@@ -196,5 +200,58 @@ describe("buildMultipartBody", () => {
   it("carries the metadata as JSON", () => {
     const text = body.toString("latin1");
     expect(text).toContain('{"name":"JPD-20260810.pdf"}');
+  });
+});
+
+describe("describeDriveError", () => {
+  const withReason = (reason: string, message: string) => ({
+    error: { message, errors: [{ reason, message }] },
+  });
+
+  it("explains the storage-quota refusal, which reads as nothing else", () => {
+    // The one that catches everybody: reading the folder works, writing never
+    // will, and the words "storage quota" do not obviously mean "use a Shared
+    // Drive" to anyone who has not hit it before.
+    const text = describeDriveError(
+      403,
+      withReason("storageQuotaExceeded", "Service Accounts do not have storage quota."),
+    );
+    expect(text).toContain("Shared Drive");
+    expect(text).toContain("Content manager");
+  });
+
+  it("matches the quota case on the message alone, without a reason code", () => {
+    const text = describeDriveError(403, {
+      error: { message: "Service Accounts do not have storage quota." },
+    });
+    expect(text).toContain("Shared Drive");
+  });
+
+  it("names Viewer-instead-of-Editor as the permission case", () => {
+    const text = describeDriveError(
+      403,
+      withReason("insufficientFilePermissions", "The user does not have sufficient permissions."),
+    );
+    expect(text).toContain("Viewer");
+  });
+
+  it("recognises the API not being enabled", () => {
+    const text = describeDriveError(
+      403,
+      withReason("accessNotConfigured", "Google Drive API has not been used in project 123."),
+    );
+    expect(text).toContain("not enabled");
+  });
+
+  it("passes Google's own words through when it does not recognise the reason", () => {
+    // The previous version substituted a guess here and hid the actual reason,
+    // which is how a wrong diagnosis got shown over a correct one.
+    const text = describeDriveError(400, withReason("badRequest", "Invalid value for parents."));
+    expect(text).toContain("Invalid value for parents.");
+    expect(text).toContain("400");
+  });
+
+  it("says so rather than inventing a cause when Drive explains nothing", () => {
+    expect(describeDriveError(500, null)).toContain("no explanation");
   });
 });

@@ -52,6 +52,56 @@ export class DriveError extends Error {
   }
 }
 
+/** The shape Drive returns on failure. */
+interface DriveApiError {
+  error?: {
+    message?: string;
+    errors?: { reason?: string; message?: string }[];
+  };
+}
+
+/**
+ * Turns a Drive failure into something worth reading.
+ *
+ * Google's own message is kept rather than replaced. An earlier version of this
+ * substituted a guess — "the folder is probably not shared" — which was
+ * confidently wrong in the one case that actually matters, and hid the reason
+ * code that would have said so. Guesses are only added *around* Google's text,
+ * never instead of it.
+ */
+export function describeDriveError(status: number, body: DriveApiError | null): string {
+  const reason = body?.error?.errors?.[0]?.reason ?? "";
+  const message = body?.error?.message ?? "";
+
+  // The one that catches everybody. Google stopped letting service accounts own
+  // files in My Drive: they have no storage quota, so a folder shared from a
+  // personal Drive can be read perfectly and never written to. A Shared Drive
+  // owns its own files, which is what makes it work.
+  if (reason === "storageQuotaExceeded" || /storage quota/i.test(message)) {
+    return (
+      "A service account cannot own files in an ordinary Drive folder — Google gives them no " +
+      "storage of their own, which is why reading the folder works and writing to it does not. " +
+      "Move the folder into a Shared Drive and add the service account as a member with " +
+      "Content manager access, then use the new folder ID."
+    );
+  }
+
+  if (reason === "insufficientFilePermissions" || /permission/i.test(message)) {
+    return (
+      "The service account can see the folder but cannot write to it. It has probably been " +
+      `shared as Viewer or Commenter rather than Editor. (Drive said: ${message})`
+    );
+  }
+
+  if (reason === "accessNotConfigured" || /has not been used|is disabled/i.test(message)) {
+    return `The Drive API is not enabled on that Google Cloud project. (Drive said: ${message})`;
+  }
+
+  return message
+    ? `Drive returned ${status}: ${message}`
+    : `Drive returned ${status} with no explanation.`;
+}
+
 interface ServiceAccount {
   client_email: string;
   private_key: string;
@@ -259,16 +309,14 @@ export async function uploadPdf(input: {
     });
 
     const result = (await response.json().catch(() => null)) as
-      | { id?: string; webViewLink?: string; error?: { message?: string } }
+      | ({ id?: string; webViewLink?: string } & DriveApiError)
       | null;
 
     if (!response.ok || !result?.id) {
       throw new DriveError(
         response.status === 404
           ? "Drive could not find that folder. Check the folder ID, and that the folder is shared with the service account's email address as an Editor."
-          : response.status === 403
-            ? "Drive refused the upload. The folder is probably not shared with the service account, or the Drive API is not enabled on the project."
-            : (result?.error?.message ?? `Drive returned ${response.status}.`),
+          : describeDriveError(response.status, result),
       );
     }
 
@@ -316,10 +364,18 @@ async function findByName(
 }
 
 /**
- * Proves the whole chain works: sign, exchange, and reach the folder.
+ * Proves the whole chain works: sign, exchange, reach the folder, and — the
+ * part that actually matters — write to it.
  *
- * Uploading nothing is the point — this has to be safe to press repeatedly from
- * Settings without littering the folder.
+ * An earlier version only read the folder's metadata. That passes with Viewer
+ * permission, and passes when the account has no storage quota to write with,
+ * so it reported success on a configuration that could not file a single
+ * invoice. A check that cannot fail the way the real thing fails is worse than
+ * no check, because it is believed.
+ *
+ * So it writes a small file and deletes it again. Pressing this repeatedly
+ * leaves nothing behind; if the delete is the thing that fails, the file is
+ * named clearly enough to remove by hand.
  */
 export async function checkDriveAccess(
   folderId: string,
@@ -363,7 +419,52 @@ export async function checkDriveAccess(
     throw new DriveError("That ID is a file, not a folder. Open the folder and copy the ID from its URL.");
   }
 
+  await probeWrite(token, folderId);
+
   return { folderName: body?.name ?? "(unnamed)", serviceAccountEmail: email };
+}
+
+/** Writes a tiny file and removes it. Throws with the real reason if it cannot. */
+async function probeWrite(token: string, folderId: string): Promise<void> {
+  const boundary = `matrix-probe-${Date.now().toString(36)}`;
+  const body = buildMultipartBody(
+    { name: "matrix-write-test.txt", parents: [folderId], mimeType: "text/plain" },
+    Buffer.from("Written by JPD Group Matrix to confirm access. Safe to delete."),
+    boundary,
+  );
+
+  const url = new URL(UPLOAD_URL);
+  url.searchParams.set("uploadType", "multipart");
+  url.searchParams.set("fields", "id");
+  url.searchParams.set("supportsAllDrives", "true");
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    cache: "no-store",
+    body: new Uint8Array(body),
+  });
+
+  const result = (await response.json().catch(() => null)) as
+    | ({ id?: string } & DriveApiError)
+    | null;
+
+  if (!response.ok || !result?.id) {
+    throw new DriveError(describeDriveError(response.status, result));
+  }
+
+  // Best-effort tidy-up. A leftover probe file is untidy, not broken, and
+  // failing the test over it would report the wrong problem.
+  const deleteUrl = new URL(`https://www.googleapis.com/drive/v3/files/${result.id}`);
+  deleteUrl.searchParams.set("supportsAllDrives", "true");
+  await fetch(deleteUrl, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  }).catch(() => undefined);
 }
 
 /** Folder names the service account can see at all. Diagnostic only. */

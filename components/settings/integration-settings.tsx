@@ -150,10 +150,21 @@ function DriveSettings({
           </span>
         </label>
 
+        <div
+          className="rounded-md border px-3 py-2 text-[11.5px]"
+          style={{ borderColor: "var(--line)", color: "var(--ink-muted)" }}
+        >
+          <strong style={{ color: "var(--ink)" }}>The folder has to be in a Shared Drive.</strong>{" "}
+          Google gives service accounts no storage of their own, so they cannot own files in an
+          ordinary My Drive folder — sharing one lets the app read it and still refuses every
+          upload. In a Shared Drive the drive owns the files, so it works. Add the service
+          account as a member with <strong>Content manager</strong> access.
+        </div>
+
         <Field
           label="Folder ID"
           htmlFor="driveFolderId"
-          hint="Open the folder in Drive; the ID is the last part of the URL, after /folders/. The folder must be shared with the service account's email address as an Editor — it has no storage of its own."
+          hint="Open the folder in Drive; the ID is the last part of the URL, after /folders/. Test connection writes a small file and deletes it again, so a pass means uploads will actually work."
         >
           <Input
             id="driveFolderId"
