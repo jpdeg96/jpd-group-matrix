@@ -142,7 +142,8 @@
       "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId, @{n='cmd';e={$_.CommandLine.Substring\\(0, [Math]::Min\\(110, $_.CommandLine.Length\\)\\)}} | Format-Table -AutoSize -Wrap)",
       "PowerShell(Stop-Process -Id 30004,5908 -Force -ErrorAction SilentlyContinue)",
       "Bash(curl -s -i http://localhost:3000/api/health)",
-      "Bash(curl -s http://localhost:3000/api/health)"
+      "Bash(curl -s http://localhost:3000/api/health)",
+      "Bash(git fetch *)"
     ]
   }
 }

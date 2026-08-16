@@ -16,8 +16,23 @@
  * destination folder is created by a human and shared with the service
  * account's address — exactly as you would share it with a colleague.
  *
- * The scope is `drive.file`, which grants access only to files this application
- * itself created. It cannot read the rest of the Drive, which is the point.
+ * ## Why the scope is `drive` and not `drive.file`
+ *
+ * `drive.file` sounds like the least-privilege choice and is the wrong one
+ * here. It grants access to files *the application itself created* — a folder
+ * a person made and then shared is not one of those, so it stays invisible
+ * however it is shared. That produces a 404 on a folder sitting right there
+ * with Editor permission granted, which is a genuinely confusing failure.
+ *
+ * `drive` is not the escalation it looks like *for a service account*. A
+ * service account has its own empty Drive and can see nothing except what has
+ * been explicitly shared with it, so the sharing is the real boundary and the
+ * scope is not. Widening it grants reach over exactly one folder: the one you
+ * shared.
+ *
+ * The distinction matters because `drive.file` exists to protect a *human*
+ * user's existing files during an OAuth consent flow. There is no such library
+ * to protect here.
  *
  * The key lives in `GOOGLE_SERVICE_ACCOUNT_JSON` — the downloaded JSON, whole,
  * as one environment variable. It never touches the database.
@@ -27,7 +42,7 @@ import { createSign } from "node:crypto";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
-const SCOPE = "https://www.googleapis.com/auth/drive.file";
+const SCOPE = "https://www.googleapis.com/auth/drive";
 const TIMEOUT_MS = 20_000;
 
 export class DriveError extends Error {
@@ -287,8 +302,11 @@ async function findByName(
  * Uploading nothing is the point — this has to be safe to press repeatedly from
  * Settings without littering the folder.
  */
-export async function checkDriveAccess(folderId: string): Promise<{ folderName: string }> {
+export async function checkDriveAccess(
+  folderId: string,
+): Promise<{ folderName: string; serviceAccountEmail: string }> {
   const token = await accessToken();
+  const email = serviceAccount()?.client_email ?? "(unknown)";
 
   const url = new URL(`https://www.googleapis.com/drive/v3/files/${folderId}`);
   url.searchParams.set("fields", "id,name,mimeType");
@@ -304,16 +322,50 @@ export async function checkDriveAccess(folderId: string): Promise<{ folderName: 
     | null;
 
   if (!response.ok) {
-    throw new DriveError(
-      response.status === 404
-        ? "No folder with that ID is visible to the service account. Share the folder with its email address as an Editor, then try again."
-        : (body?.error?.message ?? `Drive returned ${response.status}.`),
-    );
+    if (response.status === 404) {
+      // "Share it with the service account" is useless advice without saying
+      // which address, and a mistyped or wrong address is the likeliest cause
+      // once the scope is right. Listing what it *can* see turns a guess into
+      // an observation: an empty list means the share never landed on this
+      // account, and a non-empty one means the folder id is wrong.
+      const visible = await listVisibleFolders(token);
+      throw new DriveError(
+        `No folder with that ID is visible to ${email}. ` +
+          (visible.length === 0
+            ? "That account currently sees nothing at all, so the share has not reached it — check the address you shared with matches exactly."
+            : `It can currently see: ${visible.join(", ")}. Copy the ID of the folder you want from its URL.`),
+      );
+    }
+
+    throw new DriveError(body?.error?.message ?? `Drive returned ${response.status}.`);
   }
 
   if (body?.mimeType !== "application/vnd.google-apps.folder") {
     throw new DriveError("That ID is a file, not a folder. Open the folder and copy the ID from its URL.");
   }
 
-  return { folderName: body?.name ?? "(unnamed)" };
+  return { folderName: body?.name ?? "(unnamed)", serviceAccountEmail: email };
+}
+
+/** Folder names the service account can see at all. Diagnostic only. */
+async function listVisibleFolders(token: string): Promise<string[]> {
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set(
+    "q",
+    "mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+  );
+  url.searchParams.set("fields", "files(name)");
+  url.searchParams.set("pageSize", "10");
+  url.searchParams.set("supportsAllDrives", "true");
+  url.searchParams.set("includeItemsFromAllDrives", "true");
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) return [];
+
+  const body = (await response.json().catch(() => null)) as { files?: { name: string }[] } | null;
+  return (body?.files ?? []).map((file) => `"${file.name}"`);
 }

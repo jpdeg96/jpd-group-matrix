@@ -138,11 +138,14 @@ describe("normaliseDriveFolderId", () => {
 });
 
 describe("buildJwtClaims", () => {
-  it("requests only the scope it needs", () => {
+  it("requests the drive scope, not drive.file", () => {
     const claims = buildJwtClaims("bot@project.iam.gserviceaccount.com", 1_000);
-    // drive.file grants access to files this application created and nothing
-    // else in the Drive. Widening it would be a silent privilege escalation.
-    expect(claims.scope).toBe("https://www.googleapis.com/auth/drive.file");
+    // drive.file covers only files the application itself created, so a folder
+    // a person made and shared stays invisible to it — a 404 on a folder that
+    // is plainly there with Editor granted. For a service account the sharing
+    // is the real boundary anyway: its own Drive is empty, so this reaches
+    // exactly the folders somebody deliberately shared with it.
+    expect(claims.scope).toBe("https://www.googleapis.com/auth/drive");
     expect(claims.aud).toBe("https://oauth2.googleapis.com/token");
   });
 

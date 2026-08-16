@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
     if (!folderId) throw validationError("Enter the folder ID first.");
 
     try {
-      const { folderName } = await checkDriveAccess(folderId);
-      return jsonOk({ folderName });
+      const { folderName, serviceAccountEmail } = await checkDriveAccess(folderId);
+      return jsonOk({ folderName, serviceAccountEmail });
     } catch (error) {
       // DriveError messages are written for an administrator and name the
       // likely cause, so they are passed through rather than flattened into

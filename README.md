@@ -72,7 +72,7 @@ cp .env.example .env
 | `CRON_SECRET` | yes | Bearer token protecting the maintenance endpoint. `openssl rand -hex 32`. |
 | `CLOCKIFY_API_KEY` | no | Enables the time widget. Deliberately an env var, not a Settings field, so a database dump never carries a live credential. |
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | no | Remittance email. The from-address must be on a domain verified in Resend. |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | no | Files invoice PDFs into Drive. The downloaded service-account key, whole, on one line. Scope is `drive.file` — only files this application created. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | no | Files invoice PDFs into Drive. The downloaded service-account key, whole, on one line. Scope is `drive` — which for a service account means only what has been explicitly shared with it, since its own Drive is empty. |
 | `DISCORD_WEBHOOK_URL` | no | Posts releases, payroll runs and Clockify outages. The URL *is* the credential. |
 | `SEED_PASSWORD` | no | Password for seeded demo users. Default `phantom1234`. |
 

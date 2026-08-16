@@ -78,9 +78,10 @@ function DriveSettings({
   async function test() {
     setTesting(true);
     try {
-      const result = await api.post<{ folderName: string }>("/api/integrations/drive/test", {
-        folderId: folderId.trim(),
-      });
+      const result = await api.post<{ folderName: string; serviceAccountEmail: string }>(
+        "/api/integrations/drive/test",
+        { folderId: folderId.trim() },
+      );
       toast.success(`Reached "${result.folderName}". Invoices will be filed there.`);
     } catch (error) {
       toast.error(
