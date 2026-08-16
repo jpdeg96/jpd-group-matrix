@@ -201,6 +201,15 @@ model Event {
   /// event still remembers whether it reached C1.
   archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
 
+  /// Where this event came from, when it was not created in this application.
+  ///
+  /// Set by the one-time migration off the PhantomChecker spreadsheet. Legacy
+  /// rows are genuinely thinner than native ones — the spreadsheet recorded no
+  /// assignee, nobody against a completion, and no author on a note — so this
+  /// exists to explain the difference rather than let it look like data loss.
+  /// Null means the event was created here.
+  legacySource String? @map("legacy_source")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

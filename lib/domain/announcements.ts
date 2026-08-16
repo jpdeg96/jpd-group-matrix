@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-legacy-import",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "Everything from the PhantomChecker spreadsheet is now in here",
+    body: "The Dashboard and C1 have been loaded from the spreadsheet — dates, types, teams, venues, completion timestamps, review checkpoints and notes. Those rows carry a Legacy badge, because the spreadsheet never recorded who did what: they have no assignee, nobody against a completion and no note author. That is the source, not lost data. New events behave normally. From here the spreadsheet is history — work in the app.",
+  },
+  {
     id: "2026-08-16-guide",
     date: "Aug 16, 2026",
     kind: "added",

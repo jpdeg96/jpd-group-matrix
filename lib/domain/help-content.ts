@@ -294,6 +294,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         detail:
           "A short summary of changes appears the next time you load the app after an update. Dismiss it and it will not come back.",
       },
+      {
+        term: "The Legacy badge",
+        detail:
+          "Marks an event brought over from the old PhantomChecker spreadsheet rather than created here. Those rows have no assignee, nobody named against a completion and no author on their notes — the spreadsheet never recorded any of that. Everything it did record is there. They are otherwise ordinary events: assign them, tick them, note them as usual.",
+      },
     ],
     gotchas: [
       "Clocking in or out of Clockify shows a small notification — to you, and to everybody else on the team.",

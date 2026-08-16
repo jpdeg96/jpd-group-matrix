@@ -6,6 +6,12 @@
       "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "phantomchecker-prod",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeArgs": ["start"],
+      "port": 3000
     }
   ]
 }

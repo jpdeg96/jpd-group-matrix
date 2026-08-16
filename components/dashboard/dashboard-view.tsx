@@ -16,6 +16,7 @@ import {
   StatPill,
   Td,
   UserChip,
+  LegacyBadge,
 } from "@/components/ui/primitives";
 import { Stamp } from "@/components/ui/stamp";
 import { ResizeHandle, useColumnWidths } from "@/components/ui/use-column-widths";
@@ -623,6 +624,7 @@ export function DashboardView({
                         <span className="text-[10.5px]" style={{ color: "var(--ink-subtle)" }}>
                           {event.eventDate}
                         </span>
+                        <LegacyBadge source={event.legacySource} />
                         {promoted ? <Badge tone="success">In C1</Badge> : null}
                         {/* Past events are archived off the board, so the only
                             date state left worth flagging is "coming up soon". */}

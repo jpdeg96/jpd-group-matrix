@@ -41,6 +41,8 @@ export interface C1RowView {
   awayTeam: string | null;
   homeTeam: string | null;
   venue: string | null;
+  /** Set when the event was imported rather than created here. */
+  legacySource: string | null;
 
   /** The stage currently on show. */
   stageId: string;
@@ -121,6 +123,7 @@ function toRow(event: C1Event, config: ScheduleConfig): C1RowView | null {
     awayTeam: event.awayTeam,
     homeTeam: event.homeTeam,
     venue: event.venue,
+    legacySource: event.legacySource,
     stageId: stage.id,
     offsetDays: stage.offsetDays,
     reviewDue,

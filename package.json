@@ -17,6 +17,7 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "tsx prisma/seed.ts",
     "create-admin": "tsx scripts/create-admin.ts",
+    "import-legacy": "tsx scripts/import-legacy.ts",
     "db:studio": "prisma studio",
     "maintenance": "tsx scripts/maintenance.ts",
     "scheduler": "tsx scripts/scheduler.ts",

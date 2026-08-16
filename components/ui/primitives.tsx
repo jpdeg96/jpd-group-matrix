@@ -244,11 +244,13 @@ export function Badge({
   className,
   children,
   style,
+  title,
 }: {
   tone?: BadgeTone;
   className?: string;
   children: React.ReactNode;
   style?: React.CSSProperties;
+  title?: string;
 }) {
   const toneStyle: React.CSSProperties =
     tone === "neutral"
@@ -261,6 +263,7 @@ export function Badge({
 
   return (
     <span
+      title={title}
       style={{ ...toneStyle, ...style }}
       className={cn(
         "inline-flex items-center gap-1 rounded border px-1.5 py-px text-[11px] font-medium whitespace-nowrap",
@@ -269,6 +272,29 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+/**
+ * Marks a row that was imported rather than created here.
+ *
+ * Imported rows are genuinely thinner than native ones — the old spreadsheet
+ * recorded no assignee, nobody against a completion, and no author on a note.
+ * Without the badge those gaps look like the application lost something.
+ */
+export function LegacyBadge({ source }: { source: string | null }) {
+  if (!source) return null;
+  return (
+    <Badge
+      tone="neutral"
+      className="cursor-help"
+      title={
+        `Imported from the ${source}. Historic rows carry no assignee, ` +
+        "no person against a completion and no note author, because the source did not record them."
+      }
+    >
+      Legacy
+    </Badge>
   );
 }
 

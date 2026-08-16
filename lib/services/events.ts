@@ -87,6 +87,12 @@ export interface DashboardEventView {
   flaggedByName: string | null;
   flaggedByColor: string | null;
   flagReason: string | null;
+  /**
+   * Where the row came from when it was not created here. Null for native
+   * events. Drives the "Legacy" badge, which explains why an imported row has
+   * no assignee and nobody against its completion.
+   */
+  legacySource: string | null;
 }
 
 const dashboardInclude = {
@@ -133,6 +139,7 @@ function toView(event: EventWithRelations): DashboardEventView {
     flaggedByName: event.flaggedBy?.displayName ?? null,
     flaggedByColor: event.flaggedBy?.color ?? null,
     flagReason: event.flagReason,
+    legacySource: event.legacySource,
   };
 }
 

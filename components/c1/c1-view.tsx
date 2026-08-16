@@ -17,6 +17,7 @@ import {
   Td,
   Th,
   UserChip,
+  LegacyBadge,
 } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { InProgressButton } from "@/components/presence/in-progress-button";
@@ -579,7 +580,12 @@ export function C1View({
                       </div>
                     </Td>
 
-                    <Td>{formatPlainDateWithWeekday(row.eventDate)}</Td>
+                    <Td>
+                      <div className="flex flex-col items-start gap-1">
+                        <span>{formatPlainDateWithWeekday(row.eventDate)}</span>
+                        <LegacyBadge source={row.legacySource} />
+                      </div>
+                    </Td>
                     <Td>
                       <span className="flex items-center gap-1.5">
                         {row.eventTypeEmoji ? (

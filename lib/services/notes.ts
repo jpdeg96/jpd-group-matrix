@@ -26,6 +26,22 @@ export interface NoteView {
 
 const MAX_NOTE_LENGTH = 4000;
 
+/**
+ * Who to credit when a note has no author row.
+ *
+ * Two different situations produce a null author and they must not read the
+ * same. A deleted user leaves their notes behind — that is a *former user*. An
+ * imported note never had an author at all, because the source spreadsheet did
+ * not record one; calling that a former user invents a person.
+ */
+function authorLabel(
+  displayName: string | undefined,
+  legacySource: string | null,
+): string {
+  if (displayName) return displayName;
+  return legacySource ? "Imported" : "Former user";
+}
+
 export async function listNotes(eventId: string): Promise<NoteView[]> {
   const notes = await prisma.eventNote.findMany({
     where: { eventId },
@@ -37,6 +53,7 @@ export async function listNotes(eventId: string): Promise<NoteView[]> {
       createdAt: true,
       editedAt: true,
       author: { select: { displayName: true, color: true } },
+      event: { select: { legacySource: true } },
     },
   });
 
@@ -44,8 +61,7 @@ export async function listNotes(eventId: string): Promise<NoteView[]> {
     id: note.id,
     body: note.body,
     authorId: note.authorId,
-    // A deleted user leaves their notes behind; the text is still the record.
-    authorName: note.author?.displayName ?? "Former user",
+    authorName: authorLabel(note.author?.displayName, note.event.legacySource),
     authorColor: note.author?.color ?? "#64748b",
     createdAt: note.createdAt.toISOString(),
     editedAt: note.editedAt?.toISOString() ?? null,
@@ -69,6 +85,7 @@ export async function latestNotesByEvent(
       createdAt: true,
       editedAt: true,
       author: { select: { displayName: true, color: true } },
+      event: { select: { legacySource: true } },
     },
   });
 
@@ -80,7 +97,7 @@ export async function latestNotesByEvent(
       id: note.id,
       body: note.body,
       authorId: note.authorId,
-      authorName: note.author?.displayName ?? "Former user",
+      authorName: authorLabel(note.author?.displayName, note.event.legacySource),
       authorColor: note.author?.color ?? "#64748b",
       createdAt: note.createdAt.toISOString(),
       editedAt: note.editedAt?.toISOString() ?? null,
