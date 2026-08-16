@@ -47,7 +47,7 @@ export const ANNOUNCEMENTS: readonly Announcement[] = [
     date: "Aug 16, 2026",
     kind: "added",
     title: "Everything from the PhantomChecker spreadsheet is now in here",
-    body: "The Dashboard and C1 have been loaded from the spreadsheet — dates, types, teams, venues, completion timestamps, review checkpoints and notes. Those rows carry a Legacy badge, because the spreadsheet never recorded who did what: they have no assignee, nobody against a completion and no note author. That is the source, not lost data. New events behave normally. From here the spreadsheet is history — work in the app.",
+    body: "The Dashboard and C1 have been loaded from the spreadsheet — dates, types, teams, venues, completion timestamps, review checkpoints and notes. Those rows carry a Legacy badge, because the spreadsheet never recorded who did what: they have no assignee, nobody against a completion and no note author. That is the source, not lost data. A few events were marked complete without any checkpoints behind them; those were given the standard 14/7/3/1 day schedule so the work still shows up in C1. From here the spreadsheet is history — work in the app.",
   },
   {
     id: "2026-08-16-guide",

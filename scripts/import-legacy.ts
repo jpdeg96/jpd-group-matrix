@@ -27,7 +27,9 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { prisma } from "../lib/db/prisma";
 import { Workbook, text, serialToDate, serialToPlainDate, type Row } from "../lib/import/xlsx";
-import { dbDateFromPlainDate, toPlainDate } from "../lib/date/plain-date";
+import { dbDateFromPlainDate, toPlainDate, type PlainDate } from "../lib/date/plain-date";
+import { buildReviewSchedule } from "../lib/domain/review-schedule";
+import { businessToday, getSettings } from "../lib/services/settings";
 
 const LEGACY_SOURCE = "PhantomChecker spreadsheet";
 
@@ -136,10 +138,24 @@ async function main() {
   const report = {
     onDashboard: 0,
     inC1: 0,
+    scheduleDerived: 0,
     completedNoStages: 0,
     completeWithoutTimestamp: [] as string[],
     oddOffsets: 0,
     skipped: [] as string[],
+  };
+
+  // Some spreadsheet rows are ticked Complete but have no C1 rows at all. They
+  // are real outstanding work, so rather than let them land as COMPLETED and
+  // vanish from both screens, they get the schedule the application would have
+  // given them on promotion — the same offsets, the same weekend rule, and
+  // deadlines already past recorded as SKIPPED rather than as missed work.
+  const [settings, today] = await Promise.all([getSettings(), businessToday()]);
+  const scheduleConfig = {
+    // Settings is rewritten to the legacy offsets later in this run, so derive
+    // from those rather than from whatever is configured right now.
+    offsets: LEGACY_OFFSETS,
+    weekendAdjustment: settings.weekendAdjustment,
   };
 
   const typeNames = [...new Set(dashboard.map((r) => text(r[DASH.type])).filter(Boolean))].sort();
@@ -184,12 +200,74 @@ async function main() {
       );
     }
 
-    const status = !complete ? "DASHBOARD" : rowStages.length > 0 ? "C1" : "COMPLETED";
-    if (status === "DASHBOARD") report.onDashboard += 1;
-    else if (status === "C1") report.inC1 += 1;
-    else report.completedNoStages += 1;
-
     const id = randomUUID();
+
+    // The schema bounds an offset to 1–365 days. Anything outside that is not a
+    // checkpoint anyone could have worked, so it is dropped rather than clamped.
+    const byOffset = new Map<number, Row>();
+    for (const stageRow of rowStages) {
+      const offset = Number(text(stageRow[C1.daysBefore]));
+      if (!Number.isInteger(offset) || offset < 1 || offset > 365) {
+        report.oddOffsets += 1;
+        continue;
+      }
+      if (!byOffset.has(offset)) byOffset.set(offset, stageRow);
+    }
+
+    const recorded: Record<string, unknown>[] = [];
+    for (const [offset, stageRow] of [...byOffset].sort((a, b) => b[0] - a[0])) {
+      const due = serialToPlainDate(Number(text(stageRow[C1.reviewDue])));
+      if (!due) continue;
+      recorded.push({
+        eventId: id,
+        offsetDays: offset,
+        reviewDue: dbDateFromPlainDate(toPlainDate(due)),
+        // Taken as recorded rather than recalculated. Marking it overridden
+        // stops the app warning that it disagrees with the current schedule.
+        reviewDueOverridden: true,
+        status: "PENDING",
+      });
+    }
+
+    let status: "DASHBOARD" | "C1" | "COMPLETED";
+
+    if (!complete) {
+      status = "DASHBOARD";
+      report.onDashboard += 1;
+    } else if (recorded.length > 0) {
+      status = "C1";
+      report.inC1 += 1;
+      stages.push(...recorded);
+    } else {
+      // Ticked Complete with no C1 rows behind it. This is outstanding work, so
+      // it gets the schedule the application itself would have built on
+      // promotion rather than being written off as finished. Deadlines already
+      // past are SKIPPED, exactly as `createStagesForEvent` does, because they
+      // were never actionable and counting them as missed would make C1
+      // permanently red.
+      const plan = buildReviewSchedule(toPlainDate(eventDate), today, scheduleConfig);
+
+      for (const stage of plan) {
+        stages.push({
+          eventId: id,
+          offsetDays: stage.offsetDays,
+          reviewDue: dbDateFromPlainDate(stage.reviewDue),
+          // Derived, not recorded — so leave it under the schedule's control.
+          reviewDueOverridden: false,
+          status: stage.alreadyPast ? "SKIPPED" : "PENDING",
+        });
+      }
+
+      // Every deadline in the past means there is genuinely nothing left to
+      // work on, which is the one case that stays out of C1.
+      if (plan.every((stage) => stage.alreadyPast)) {
+        status = "COMPLETED";
+        report.completedNoStages += 1;
+      } else {
+        status = "C1";
+        report.scheduleDerived += 1;
+      }
+    }
 
     eventTypeRaw.push(typeRaw);
     events.push({
@@ -207,32 +285,6 @@ async function main() {
       ticketDataChecked: isTrue(text(row[DASH.ticketData])),
       legacySource: LEGACY_SOURCE,
     });
-
-    // The schema bounds an offset to 1–365 days. Anything outside that is not a
-    // checkpoint anyone could have worked, so it is dropped rather than clamped.
-    const byOffset = new Map<number, Row>();
-    for (const stageRow of rowStages) {
-      const offset = Number(text(stageRow[C1.daysBefore]));
-      if (!Number.isInteger(offset) || offset < 1 || offset > 365) {
-        report.oddOffsets += 1;
-        continue;
-      }
-      if (!byOffset.has(offset)) byOffset.set(offset, stageRow);
-    }
-
-    for (const [offset, stageRow] of [...byOffset].sort((a, b) => b[0] - a[0])) {
-      const due = serialToPlainDate(Number(text(stageRow[C1.reviewDue])));
-      if (!due) continue;
-      stages.push({
-        eventId: id,
-        offsetDays: offset,
-        reviewDue: dbDateFromPlainDate(toPlainDate(due)),
-        // Taken as recorded rather than recalculated. Marking it overridden
-        // stops the app warning that it disagrees with the current schedule.
-        reviewDueOverridden: true,
-        status: "PENDING",
-      });
-    }
 
     const note = text(row[DASH.notes]);
     if (note) notes.push({ eventId: id, body: note, authorId: null });
@@ -328,11 +380,19 @@ async function main() {
   console.log("\n--- imported ---");
   console.log(`  events                          ${events.length}`);
   console.log(`    on the dashboard              ${report.onDashboard}`);
-  console.log(`    in C1                         ${report.inC1}`);
-  console.log(`    completed, no open checkpoints ${report.completedNoStages}`);
+  console.log(`    in C1, checkpoints as recorded ${report.inC1}`);
+  console.log(`    in C1, checkpoints derived    ${report.scheduleDerived}`);
+  console.log(`    completed, every deadline past ${report.completedNoStages}`);
   console.log(`  review stages                   ${stages.length}`);
   console.log(`  notes                           ${notes.length}`);
-  console.log(`\nReview stages for NEW events set to ${LEGACY_OFFSETS.join(", ")} days before.`);
+  console.log(`\nReview stages set to ${LEGACY_OFFSETS.join(", ")} days before the event.`);
+  if (report.scheduleDerived > 0) {
+    console.log(
+      `\n  ${report.scheduleDerived} event(s) were ticked Complete with no C1 rows behind them.\n` +
+        "  They were given that schedule so they appear in C1 as outstanding work;\n" +
+        "  deadlines that had already passed are marked skipped, not missed.",
+    );
+  }
 
   if (report.completeWithoutTimestamp.length > 0) {
     console.log(
