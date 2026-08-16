@@ -66,6 +66,16 @@ type SortKey =
 /** Which extra rows to include beyond the default open-work view. */
 type Scope = "OPEN" | "COMPLETED" | "STALE" | "ALL";
 
+/**
+ * One outstanding checkbox, when the header counter for it has been clicked.
+ *
+ * These mirror the counters exactly — same predicate, same OPEN scope — so the
+ * number in the header and the number of rows on screen always agree. A filter
+ * that shows a different count from the pill you pressed to get there reads as
+ * a bug even when both are individually correct.
+ */
+type PendingWork = "SEATGEEK" | "TICKETDATA" | "AUDIT";
+
 export function DashboardView({
   events: initialEvents,
   latestNotes: initialNotes,
@@ -114,6 +124,7 @@ export function DashboardView({
   const [mineOnly, setMineOnly] = React.useState(false);
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
   const [scope, setScope] = React.useState<Scope>("OPEN");
+  const [pendingWork, setPendingWork] = React.useState<PendingWork | null>(null);
   const [sort, setSort] = React.useState<SortKey>("eventDate");
   const [direction, setDirection] = React.useState<"asc" | "desc">("asc");
   const [editing, setEditing] = React.useState<DashboardEventView | null>(null);
@@ -168,6 +179,9 @@ export function DashboardView({
 
       if (typeFilter && event.eventTypeId !== typeFilter) return false;
       if (flaggedOnly && !event.flaggedAt) return false;
+      if (pendingWork === "SEATGEEK" && event.seatGeekCheckedAt !== null) return false;
+      if (pendingWork === "TICKETDATA" && event.ticketDataChecked) return false;
+      if (pendingWork === "AUDIT" && event.auditedAt !== null) return false;
       if (assigneeFilter) {
         const matches =
           assigneeFilter === UNASSIGNED_FILTER
@@ -195,7 +209,7 @@ export function DashboardView({
     });
   }, [
     events, search, typeFilter, assigneeFilter, mineOnly, flaggedOnly, scope,
-    sort, direction, currentUser.id, stats.staleDays,
+    pendingWork, sort, direction, currentUser.id, stats.staleDays,
   ]);
 
   const isPending = (id: string, field: Field) => pending.has(`${id}:${field}`);
@@ -327,6 +341,7 @@ export function DashboardView({
     Boolean(search || typeFilter || assigneeFilter) ||
     mineOnly ||
     flaggedOnly ||
+    pendingWork !== null ||
     scope !== "OPEN";
 
   function clearFilters() {
@@ -335,7 +350,39 @@ export function DashboardView({
     setAssigneeFilter("");
     setMineOnly(false);
     setFlaggedOnly(false);
+    setPendingWork(null);
     setScope("OPEN");
+  }
+
+  /** The plain outstanding-work view the "open" counter describes. */
+  const showOpenWork = clearFilters;
+
+  /*
+   * Every header counter is counted over open work, so each of these puts the
+   * scope back first — clicking "unassigned" while looking at Completed would
+   * otherwise land on a number with no relation to the one just pressed.
+   *
+   * Mine and Unassigned also clear each other. They cannot both hold, so
+   * leaving one set while the other is applied guarantees an empty screen.
+   */
+
+  function toggleUnassigned() {
+    setScope("OPEN");
+    setPendingWork(null);
+    setMineOnly(false);
+    setAssigneeFilter((current) => (current === UNASSIGNED_FILTER ? "" : UNASSIGNED_FILTER));
+  }
+
+  function toggleMine() {
+    setScope("OPEN");
+    setPendingWork(null);
+    setAssigneeFilter("");
+    setMineOnly((value) => !value);
+  }
+
+  function togglePendingWork(next: PendingWork) {
+    setScope("OPEN");
+    setPendingWork((current) => (current === next ? null : next));
   }
 
   const openCount = events.filter((event) => event.status === "DASHBOARD").length;
@@ -358,14 +405,48 @@ export function DashboardView({
         title="Event Dashboard"
         subtitle={
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <StatPill label="open" value={stats.total} />
-            <StatPill label="unassigned" value={stats.unassigned} />
-            <StatPill label="SeatGeek to do" value={stats.seatGeekPending} />
-            <StatPill label="TicketData to do" value={stats.ticketDataPending} />
+            {/* Every counter here is a filter you can apply. They all narrow
+                within the open-work scope the numbers are counted over, so the
+                figure you clicked is the number of rows you land on. */}
+            <StatPill
+              label="open"
+              value={stats.total}
+              active={!filtersActive}
+              onClick={showOpenWork}
+              title="All outstanding work — clears every other filter"
+            />
+            <StatPill
+              label="unassigned"
+              value={stats.unassigned}
+              active={assigneeFilter === UNASSIGNED_FILTER}
+              onClick={toggleUnassigned}
+            />
+            <StatPill
+              label="SeatGeek to do"
+              value={stats.seatGeekPending}
+              active={pendingWork === "SEATGEEK"}
+              onClick={() => togglePendingWork("SEATGEEK")}
+            />
+            <StatPill
+              label="TicketData to do"
+              value={stats.ticketDataPending}
+              active={pendingWork === "TICKETDATA"}
+              onClick={() => togglePendingWork("TICKETDATA")}
+            />
             {showAudited ? (
-              <StatPill label="to audit" value={stats.auditPending} />
+              <StatPill
+                label="to audit"
+                value={stats.auditPending}
+                active={pendingWork === "AUDIT"}
+                onClick={() => togglePendingWork("AUDIT")}
+              />
             ) : null}
-            <StatPill label="mine" value={stats.mine} />
+            <StatPill
+              label="mine"
+              value={stats.mine}
+              active={mineOnly}
+              onClick={toggleMine}
+            />
             {stats.archived > 0 ? (
               <span
                 className="text-[11.5px]"
@@ -459,17 +540,13 @@ export function DashboardView({
           label="Mine"
           count={events.filter((event) => event.assigneeId === currentUser.id).length}
           active={mineOnly}
-          onClick={() => setMineOnly((value) => !value)}
+          onClick={toggleMine}
         />
         <ShortcutChip
           label="Unassigned"
           count={events.filter((event) => event.assigneeId === null).length}
           active={assigneeFilter === UNASSIGNED_FILTER}
-          onClick={() =>
-            setAssigneeFilter((current) =>
-              current === UNASSIGNED_FILTER ? "" : UNASSIGNED_FILTER,
-            )
-          }
+          onClick={toggleUnassigned}
         />
 
         {filtersActive ? (

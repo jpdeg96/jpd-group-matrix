@@ -43,6 +43,20 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-c1-opens-on-today",
+    date: "Aug 16, 2026",
+    kind: "changed",
+    title: "C1 opens on today's reviews",
+    body: "C1 now lands on the checkpoints due today rather than the whole pipeline. The Today chip stays lit so you can see the filter is on; This week, Next week, or clicking Today again gives you everything.",
+  },
+  {
+    id: "2026-08-16-clickable-counters",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "The Dashboard counters are now filters",
+    body: "Click any figure in the Dashboard header — unassigned, SeatGeek to do, TicketData to do, to audit, mine — to show exactly those rows. Click it again, or click open, to go back to everything.",
+  },
+  {
     id: "2026-08-16-legacy-import",
     date: "Aug 16, 2026",
     kind: "added",

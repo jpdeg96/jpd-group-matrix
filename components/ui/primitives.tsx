@@ -481,27 +481,71 @@ export function PageHeader({
   );
 }
 
+/**
+ * A counter in a page header.
+ *
+ * Given `onClick` it becomes a real button that applies the filter it counts,
+ * because a number labelled "SeatGeek to do" is already a description of a
+ * subset — the only question a reader has next is "show me those". `active`
+ * underlines it so the header says which filter is on, not just what exists.
+ */
 export function StatPill({
   label,
   value,
   tone = "neutral",
+  onClick,
+  active = false,
+  title,
 }: {
   label: string;
   value: number | string;
   tone?: "neutral" | "danger" | "warn" | "success" | "accent";
+  onClick?: () => void;
+  active?: boolean;
+  title?: string;
 }) {
-  return (
-    <div className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span
-        className="text-[13px] font-semibold tabular-nums"
-        style={{ color: tone === "neutral" ? "var(--ink)" : `var(--${tone})` }}
-      >
+  const valueColor = tone === "neutral" ? "var(--ink)" : `var(--${tone})`;
+
+  const content = (
+    <>
+      <span className="text-[13px] font-semibold tabular-nums" style={{ color: valueColor }}>
         {value}
       </span>
-      <span className="text-[11.5px]" style={{ color: "var(--ink-muted)" }}>
+      <span
+        className="text-[11.5px]"
+        style={{ color: active ? "var(--ink)" : "var(--ink-muted)" }}
+      >
         {label}
       </span>
-    </div>
+    </>
+  );
+
+  if (!onClick) {
+    return (
+      <div className="flex items-baseline gap-1.5 whitespace-nowrap" title={title}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={title}
+      className={cn(
+        "flex items-baseline gap-1.5 whitespace-nowrap rounded-sm border-b transition",
+        "hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2",
+        active ? "opacity-100" : "opacity-90 hover:opacity-100",
+      )}
+      style={{
+        borderColor: active ? valueColor : "transparent",
+        outlineColor: "var(--accent)",
+      }}
+    >
+      {content}
+    </button>
   );
 }
 

@@ -93,7 +93,12 @@ export function C1View({
   const [typeFilter, setTypeFilter] = React.useState("");
   const [assigneeFilter, setAssigneeFilter] = React.useState("");
   const [stageFilter, setStageFilter] = React.useState("");
-  const [rangeFilter, setRangeFilter] = React.useState<DueRangeKey | null>(null);
+  // C1 opens on today's work. The screen exists to answer "what do I review
+  // now?", and 500 rows sorted by date answers it far less directly than the
+  // handful actually due. Every other range is one click away, and the Today
+  // chip stays lit so it is obvious a filter is on rather than that the
+  // pipeline is empty.
+  const [rangeFilter, setRangeFilter] = React.useState<DueRangeKey | null>("TODAY");
   const [mineOnly, setMineOnly] = React.useState(false);
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
@@ -218,6 +223,16 @@ export function C1View({
     Boolean(search || typeFilter || assigneeFilter || stageFilter || rangeFilter) ||
     mineOnly ||
     flaggedOnly;
+
+  /** The default view, untouched — so its empty state can explain itself. */
+  const onlyTodayFilter =
+    rangeFilter === "TODAY" &&
+    !search &&
+    !typeFilter &&
+    !assigneeFilter &&
+    !stageFilter &&
+    !mineOnly &&
+    !flaggedOnly;
 
   function clearFilters() {
     setSearch("");
@@ -387,13 +402,29 @@ export function C1View({
 
       {visible.length === 0 ? (
         <EmptyState
-          title={rows.length === 0 ? "Nothing in staging" : "No rows match these filters"}
+          title={
+            rows.length === 0
+              ? "Nothing in staging"
+              : onlyTodayFilter
+                ? "Nothing due today"
+                : "No rows match these filters"
+          }
           description={
             rows.length === 0
               ? "Events arrive here when someone ticks Complete on the Event Dashboard."
-              : "Try a wider date range or clear a filter."
+              : onlyTodayFilter
+                ? // Distinguishing "no work today" from "your filters hid it" is
+                  // the difference between a clear afternoon and a broken screen.
+                  `${stats.total} event${stats.total === 1 ? "" : "s"} are in staging with later review dates.`
+                : "Try a wider date range or clear a filter."
           }
-          action={filtersActive ? <Button onClick={clearFilters}>Clear filters</Button> : null}
+          action={
+            onlyTodayFilter ? (
+              <Button onClick={() => setRangeFilter(null)}>Show every date</Button>
+            ) : filtersActive ? (
+              <Button onClick={clearFilters}>Clear filters</Button>
+            ) : null
+          }
         />
       ) : (
         <div className="overflow-x-auto scrollbar-thin">
