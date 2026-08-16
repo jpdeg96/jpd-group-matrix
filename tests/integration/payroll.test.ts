@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/db/prisma";
 import {
+  createManualInvoice,
   generateInvoicesForPeriod,
   markInvoicePaid,
   voidInvoice,
@@ -648,5 +649,235 @@ describe("payment and voiding", () => {
 
     // Nothing was lost.
     expect(await prisma.invoice.count()).toBe(2);
+  });
+});
+
+describe("manual invoices", () => {
+  it("can be raised alongside the wage invoice for the same week", async () => {
+    // The one-live-per-week index used to cover every invoice, which would have
+    // refused this. A bonus is paid *with* the wage, not instead of it.
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await prisma.invoice.create({
+      data: {
+        invoiceNumber: "NAT-20260705",
+        contractorId: who.id,
+        payrollPeriodId: pay.id,
+        payType: "FLAT_WEEKLY",
+        approvedSeconds: 0,
+        weeklyAmount: new Decimal("750.00"),
+        amount: new Decimal("750.00"),
+        depositDate: DEPOSIT,
+      },
+    });
+
+    const result = await createManualInvoice(
+      {
+        contractorId: who.id,
+        payrollPeriodId: pay.id,
+        description: "Q3 performance bonus",
+        amount: "500.00",
+      },
+      actor,
+    );
+
+    expect(result.invoiceNumber).toBe("NAT-20260705-M1");
+    expect(await prisma.invoice.count({ where: { payrollPeriodId: pay.id } })).toBe(2);
+  });
+
+  it("numbers a second one in the same week -M2", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await createManualInvoice(
+      { contractorId: who.id, payrollPeriodId: pay.id, description: "Bonus", amount: "100.00" },
+      actor,
+    );
+    const second = await createManualInvoice(
+      { contractorId: who.id, payrollPeriodId: pay.id, description: "Expenses", amount: "40.00" },
+      actor,
+    );
+
+    expect(second.invoiceNumber).toBe("NAT-20260705-M2");
+  });
+
+  it("records no hours, rate or pay type", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await createManualInvoice(
+      { contractorId: who.id, payrollPeriodId: pay.id, description: "Bonus", amount: "250.00" },
+      actor,
+    );
+
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { kind: "MANUAL" } });
+    expect(invoice.payType).toBeNull();
+    expect(invoice.approvedSeconds).toBe(0);
+    expect(invoice.hourlyRate).toBeNull();
+    expect(invoice.weeklyAmount).toBeNull();
+    expect(invoice.description).toBe("Bonus");
+  });
+
+  it("refuses a zero amount, unlike a wage", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await expect(
+      createManualInvoice(
+        { contractorId: who.id, payrollPeriodId: pay.id, description: "Bonus", amount: "0" },
+        actor,
+      ),
+    ).rejects.toThrow(/more than zero/);
+  });
+
+  it("refuses one for an inactive contractor", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+    await prisma.contractor.update({ where: { id: who.id }, data: { active: false } });
+
+    await expect(
+      createManualInvoice(
+        { contractorId: who.id, payrollPeriodId: pay.id, description: "Bonus", amount: "50.00" },
+        actor,
+      ),
+    ).rejects.toThrow(/not active/);
+  });
+
+  it("leaves an audit entry naming the reason and the amount", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await createManualInvoice(
+      {
+        contractorId: who.id,
+        payrollPeriodId: pay.id,
+        description: "Equipment reimbursement",
+        amount: "312.50",
+      },
+      actor,
+    );
+
+    const entry = await prisma.auditLog.findFirstOrThrow({
+      where: { action: "MANUAL_CREATED" },
+    });
+    expect(entry.newValue).toMatchObject({
+      description: "Equipment reimbursement",
+      amount: "312.50",
+    });
+  });
+
+  it("is refused by the database if it claims hours", async () => {
+    // The service never writes this; the constraint is what makes that
+    // guarantee rather than a convention.
+    const [pay, who] = await Promise.all([period(), contractor()]);
+
+    await expect(
+      prisma.invoice.create({
+        data: {
+          invoiceNumber: "NAT-20260705-M1",
+          kind: "MANUAL",
+          contractorId: who.id,
+          payrollPeriodId: pay.id,
+          description: "Bonus",
+          approvedSeconds: 144000,
+          amount: new Decimal("500.00"),
+          depositDate: DEPOSIT,
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("is refused by the database without a description", async () => {
+    const [pay, who] = await Promise.all([period(), contractor()]);
+
+    await expect(
+      prisma.invoice.create({
+        data: {
+          invoiceNumber: "NAT-20260705-M1",
+          kind: "MANUAL",
+          contractorId: who.id,
+          payrollPeriodId: pay.id,
+          amount: new Decimal("500.00"),
+          depositDate: DEPOSIT,
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("is refused by the database if the number does not carry -M", async () => {
+    // The suffix is how a bonus is told apart at a glance. If the number and
+    // the kind could disagree, it would stop being reliable.
+    const [pay, who] = await Promise.all([period(), contractor()]);
+
+    await expect(
+      prisma.invoice.create({
+        data: {
+          invoiceNumber: "NAT-20260705",
+          kind: "MANUAL",
+          contractorId: who.id,
+          payrollPeriodId: pay.id,
+          description: "Bonus",
+          amount: new Decimal("500.00"),
+          depositDate: DEPOSIT,
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("still refuses two live wage invoices for one contractor-week", async () => {
+    // Narrowing the index to PAYROLL must not have weakened what it protected.
+    const [pay, who] = await Promise.all([period(), contractor()]);
+
+    const wage = {
+      contractorId: who.id,
+      payrollPeriodId: pay.id,
+      payType: "FLAT_WEEKLY" as const,
+      approvedSeconds: 0,
+      weeklyAmount: new Decimal("750.00"),
+      amount: new Decimal("750.00"),
+      depositDate: DEPOSIT,
+    };
+
+    await prisma.invoice.create({ data: { ...wage, invoiceNumber: "NAT-20260705" } });
+    await expect(
+      prisma.invoice.create({ data: { ...wage, invoiceNumber: "NAT-20260705-R2" } }),
+    ).rejects.toThrow();
+  });
+
+  it("goes out with that week's remittance", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+    await prisma.contractor.update({
+      where: { id: who.id },
+      data: { remittanceEmail: "nathaly@example.com" },
+    });
+
+    await createManualInvoice(
+      { contractorId: who.id, payrollPeriodId: pay.id, description: "Bonus", amount: "500.00" },
+      actor,
+    );
+
+    // Picked up by the same query the wage invoices use, so nothing extra had
+    // to be taught about manual ones.
+    const forRemittance = await prisma.invoice.findMany({
+      where: { payrollPeriodId: pay.id, status: { not: "VOID" } },
+    });
+    expect(forRemittance).toHaveLength(1);
+    expect(forRemittance[0]!.kind).toBe("MANUAL");
+  });
+
+  it("renders a PDF stating the reason and no hours", async () => {
+    const [actor, pay, who] = await Promise.all([makeActor(), period(), contractor()]);
+
+    await createManualInvoice(
+      {
+        contractorId: who.id,
+        payrollPeriodId: pay.id,
+        description: "Q3 performance bonus",
+        amount: "500.00",
+      },
+      actor,
+    );
+
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { kind: "MANUAL" } });
+    const pdf = await buildInvoicePdf(invoice.id);
+
+    expect(pdf.bytes.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(pdf.filename).toBe("NAT-20260705-M1.pdf");
+    expect(pdf.driveFilename).toBe("260717 NAT-20260705-M1.pdf");
   });
 });

@@ -219,6 +219,16 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "Opens the invoice as a document. It is generated from the invoice's own record each time, so it always matches what was approved.",
       },
       {
+        term: "Add manual invoice",
+        detail:
+          "For a bonus, a reimbursement, or anything else not driven by hours. Choose the contractor and the week it should be paid with, say what it is for, and give an amount. It rides along with that week's remittance and deposit date. Administrators only — it is the one invoice that does not pass through weekly approval, because there are no hours to approve.",
+      },
+      {
+        term: "Why some invoice numbers end in -M1 or -R2",
+        detail:
+          "-M1 is a manual invoice, -M2 a second one in the same week. -R2 is a reissue after a void. A contractor can legitimately have a wage invoice, a bonus and a reissue in one week, and the suffix is what keeps the three from being mistaken for one another.",
+      },
+      {
         term: "Record payment",
         detail:
           "Needs both a payment date and the USDT transaction hash. The hash is the evidence, so it is required rather than optional.",

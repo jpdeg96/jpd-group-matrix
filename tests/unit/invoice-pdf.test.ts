@@ -21,6 +21,7 @@ const base: InvoicePdfData = {
   periodEnd: toPlainDate("2026-07-11"),
   depositDate: toPlainDate("2026-07-17"),
   payType: "FLAT_WEEKLY",
+  description: null,
   approvedSeconds: 28 * 3600 + 30 * 60,
   hourlyRate: null,
   weeklyAmount: "750.00",
@@ -159,6 +160,28 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain("101.73");
     // The deposit date must be a full date, never the weekday alone.
     expect(text).toContain("Jul 17, 2026");
+  });
+
+  it("states a manual invoice's reason, and claims no hours", async () => {
+    const text = extractText(
+      await render({
+        invoiceNumber: "NAT-20260705-M1",
+        payType: null,
+        description: "Q3 performance bonus",
+        approvedSeconds: 0,
+        hourlyRate: null,
+        weeklyAmount: null,
+        amount: "500.00",
+      }),
+    );
+
+    expect(text).toContain("Q3 performance bonus");
+    expect(text).toContain("500.00");
+    // No pay type is claimed, because nothing derived this amount.
+    expect(text).not.toContain("Hourly");
+    expect(text).not.toContain("Flat weekly");
+    // And no disclaimer about hours recorded for reference, since none are.
+    expect(text).not.toContain("Hours recorded for reference");
   });
 
   it("says VOID on the page when the invoice is void", async () => {

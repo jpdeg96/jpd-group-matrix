@@ -28,7 +28,10 @@ export interface InvoicePdfData {
   periodStart: PlainDate;
   periodEnd: PlainDate;
   depositDate: PlainDate;
-  payType: PayType;
+  /** Null on a manual invoice, which has no hours behind it. */
+  payType: PayType | null;
+  /** What a manual invoice is for. Replaces the pay-type line item. */
+  description: string | null;
   approvedSeconds: number;
   hourlyRate: string | null;
   weeklyAmount: string | null;
@@ -152,16 +155,26 @@ function draw(doc: PDFKit.PDFDocument, data: InvoicePdfData): void {
   rule(doc, y);
   y += 12;
 
+  const manual = data.payType === null;
   const hourly = data.payType === "HOURLY";
 
   doc.fontSize(10.5).font("Helvetica").fillColor(INK);
   doc.text(
-    `${PAY_TYPE_LABELS[data.payType]} — week of ${formatPlainDate(data.periodStart)}`,
+    // A manual invoice states its own reason. Nothing derived its amount, so
+    // there is no pay type to name and no week of work to attribute it to.
+    manual
+      ? (data.description ?? "Adjustment")
+      : `${PAY_TYPE_LABELS[data.payType!]} — week of ${formatPlainDate(data.periodStart)}`,
     columns.desc,
     y,
     { width: 290 },
   );
-  doc.text(formatHours(data.approvedSeconds), columns.qty, y, { width: 60, align: "right" });
+  doc.text(
+    manual ? "—" : formatHours(data.approvedSeconds),
+    columns.qty,
+    y,
+    { width: 60, align: "right" },
+  );
   doc.text(
     hourly ? `$${formatRate(data.hourlyRate ?? "0")}` : "—",
     columns.rate,
@@ -171,8 +184,9 @@ function draw(doc: PDFKit.PDFDocument, data: InvoicePdfData): void {
   doc.text(`$${formatMoney(data.amount)}`, columns.amount, y, { width: 80, align: "right" });
 
   // Hours are shown for a flat-weekly contractor too, but must not read as
-  // something the amount was derived from.
-  if (!hourly) {
+  // something the amount was derived from. A manual invoice shows none at all,
+  // so it needs no such disclaimer.
+  if (!hourly && !manual) {
     y += 15;
     doc
       .fontSize(9)

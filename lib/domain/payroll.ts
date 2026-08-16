@@ -231,6 +231,74 @@ export function parseInvoiceNumber(
  * person ever issues, so the screen offers this and lets it be overridden.
  */
 /**
+ * A manual invoice number: `PREFIX-YYYYMMDD-M1`.
+ *
+ * The `-M` suffix is what keeps a bonus distinguishable from the wage invoice
+ * for the same week and from a reissue of it (`-R2`), which matters because all
+ * three can legitimately exist for one contractor in one week. The database
+ * checks that the suffix and the kind agree, so the number cannot lie about
+ * what it is.
+ *
+ * `sequence` is the count of manual invoices already issued to that contractor
+ * for that week, plus one — a second bonus in the same week is `-M2`.
+ */
+export function manualInvoiceNumberFor(
+  prefix: string,
+  periodStart: PlainDate,
+  sequence: number,
+): string {
+  if (!Number.isInteger(sequence) || sequence < 1) {
+    throw new Error(`Manual invoice sequence must be a positive whole number, got ${sequence}.`);
+  }
+  const base = invoiceNumberFor(prefix, periodStart);
+  return `${base}-M${sequence}`;
+}
+
+/**
+ * What is wrong with a manual invoice, in the order somebody would fix it.
+ *
+ * Separate from `validateInvoiceDraft` because the two kinds fail differently:
+ * a payroll invoice can legitimately be zero in a week nobody worked, and has
+ * no description to be missing. Sharing one validator would have meant one of
+ * those rules being weakened for the other's sake.
+ */
+export function validateManualInvoice(draft: {
+  contractorName: string;
+  description: string;
+  amount: Decimal;
+  periodStart: PlainDate;
+}): string[] {
+  const problems: string[] = [];
+
+  if (draft.contractorName.trim() === "") problems.push("Contractor name is blank.");
+
+  if (draft.description.trim() === "") {
+    problems.push("Say what the invoice is for — it is the only record of that.");
+  } else if (draft.description.trim().length > 200) {
+    problems.push("Description is too long for the invoice line; keep it under 200 characters.");
+  }
+
+  if (!draft.amount.isFinite()) problems.push("Amount is not a number.");
+  else if (draft.amount.lessThanOrEqualTo(0)) {
+    // Unlike a wage, which can be zero for a week nobody worked.
+    problems.push("Amount must be more than zero.");
+  } else if (draft.amount.greaterThan(AMOUNT_CONFIRMATION_THRESHOLD)) {
+    problems.push(
+      `Amount ${draft.amount.toFixed(2)} is above the ${AMOUNT_CONFIRMATION_THRESHOLD.toFixed(0)} ` +
+        "confirmation threshold.",
+    );
+  }
+
+  if (draft.periodStart < EARLIEST_PAY_PERIOD || draft.periodStart > LATEST_PAY_PERIOD) {
+    problems.push(
+      `Pay period ${draft.periodStart} is outside ${EARLIEST_PAY_PERIOD}–${LATEST_PAY_PERIOD}.`,
+    );
+  }
+
+  return problems;
+}
+
+/**
  * The filename an invoice is filed under in Drive: `YYMMDD INV-NUMBER.pdf`.
  *
  * Dated by the deposit date rather than the pay period, so a folder listed

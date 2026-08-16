@@ -9,6 +9,7 @@ import {
   EmptyState,
   Field,
   PageHeader,
+  Select,
   StatPill,
 } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -30,7 +31,9 @@ interface Invoice {
   contractorName: string;
   periodStart: PlainDate;
   periodEnd: PlainDate;
-  payType: PayType;
+  kind: "PAYROLL" | "MANUAL";
+  payType: PayType | null;
+  description: string | null;
   approvedSeconds: number;
   amount: string;
   status: InvoiceStatus;
@@ -45,6 +48,18 @@ interface Invoice {
   driveError: string | null;
 }
 
+export interface ContractorOption {
+  id: string;
+  name: string;
+}
+
+export interface PeriodOption {
+  id: string;
+  periodStart: PlainDate;
+  periodEnd: PlainDate;
+  depositDate: PlainDate;
+}
+
 const STATUS_TONE: Record<InvoiceStatus, string> = {
   GENERATED: "var(--ink-muted)",
   SENT: "var(--accent)",
@@ -56,11 +71,17 @@ export function InvoicesView({
   isAdmin,
   invoices,
   driveEnabled,
+  contractors,
+  periods,
 }: {
   isAdmin: boolean;
   invoices: Invoice[];
   /** Drive archiving is on and a folder is set, so filing is possible. */
   driveEnabled: boolean;
+  /** Active contractors, for the manual-invoice picker. */
+  contractors: ContractorOption[];
+  /** Pay periods, most recent first. */
+  periods: PeriodOption[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -69,6 +90,7 @@ export function InvoicesView({
   const [voiding, setVoiding] = React.useState<Invoice | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [filing, setFiling] = React.useState(false);
+  const [addingManual, setAddingManual] = React.useState(false);
 
   // Invoices issued before archiving was switched on, plus any whose upload
   // failed. Both are "no copy in Drive", so one action covers both.
@@ -138,19 +160,50 @@ export function InvoicesView({
     }
   }
 
+  async function createManual(input: {
+    contractorId: string;
+    payrollPeriodId: string;
+    description: string;
+    amount: string;
+  }) {
+    setBusy(true);
+    try {
+      const result = await api.post<{ invoiceNumber: string; amount: string }>(
+        "/api/payroll/invoices/manual",
+        input,
+      );
+      toast.success(
+        result.invoiceNumber + " created for $" + formatMoney(result.amount) + ".",
+      );
+      setAddingManual(false);
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        "Could not create that invoice.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportCsv() {
     const csv = toCsv(
       [
-        "Invoice", "Contractor", "Period start", "Period end", "Pay type",
-        "Hours", "Amount", "Status", "Deposit date", "Payment date", "USDT tx hash",
+        "Invoice", "Contractor", "Period start", "Period end", "Kind",
+        "Pay type / description", "Hours", "Amount", "Status", "Deposit date",
+        "Payment date", "USDT tx hash",
       ],
       invoices.map((invoice) => [
         invoice.invoiceNumber,
         invoice.contractorName,
         invoice.periodStart,
         invoice.periodEnd,
-        PAY_TYPE_LABELS[invoice.payType],
-        formatHours(invoice.approvedSeconds),
+        invoice.kind === "MANUAL" ? "Manual" : "Payroll",
+        // A manual invoice has no pay type; its description is the equivalent
+        // statement of what the money is for.
+        invoice.payType ? PAY_TYPE_LABELS[invoice.payType] : (invoice.description ?? ""),
+        invoice.kind === "MANUAL" ? "" : formatHours(invoice.approvedSeconds),
         invoice.amount,
         INVOICE_STATUS_LABELS[invoice.status],
         invoice.depositDate,
@@ -178,9 +231,15 @@ export function InvoicesView({
           </div>
         }
         actions={
-          invoices.length > 0 ? (
-            <>
-              {isAdmin && driveEnabled && unfiled > 0 ? (
+          <>
+            {isAdmin && contractors.length > 0 && periods.length > 0 ? (
+              <Button size="sm" onClick={() => setAddingManual(true)}>
+                Add manual invoice
+              </Button>
+            ) : null}
+            {invoices.length > 0 ? (
+              <>
+                {isAdmin && driveEnabled && unfiled > 0 ? (
                 <Button
                   size="sm"
                   loading={filing}
@@ -190,13 +249,24 @@ export function InvoicesView({
                   File {unfiled} to Drive
                 </Button>
               ) : null}
-              <Button size="sm" onClick={exportCsv}>
-                Export CSV
-              </Button>
-            </>
-          ) : null
+                <Button size="sm" onClick={exportCsv}>
+                  Export CSV
+                </Button>
+              </>
+            ) : null}
+          </>
         }
       />
+
+      {addingManual ? (
+        <ManualInvoiceDialog
+          contractors={contractors}
+          periods={periods}
+          busy={busy}
+          onClose={() => setAddingManual(false)}
+          onSubmit={createManual}
+        />
+      ) : null}
 
       {invoices.length === 0 ? (
         <EmptyState
@@ -239,12 +309,35 @@ export function InvoicesView({
                     <td className="px-3 py-2 text-[12.5px] font-medium tabular-nums">
                       {invoice.invoiceNumber}
                     </td>
-                    <td className="px-3 py-2 text-[12.5px]">{invoice.contractorName}</td>
+                    <td className="px-3 py-2 text-[12.5px]">
+                      <span className="flex flex-col items-start gap-0.5">
+                        {invoice.contractorName}
+                        {/* A manual invoice's reason belongs on the row: it is
+                            what distinguishes a bonus from a wage at a glance,
+                            and the amount alone does not say. */}
+                        {invoice.kind === "MANUAL" ? (
+                          <span
+                            className="rounded border px-1 py-px text-[10.5px]"
+                            style={{
+                              borderColor: "var(--line-strong)",
+                              color: "var(--ink-muted)",
+                            }}
+                            title={invoice.description ?? undefined}
+                          >
+                            {invoice.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-[11.5px]" style={{ color: "var(--ink-muted)" }}>
                       {formatPlainDate(invoice.periodStart)} – {formatPlainDate(invoice.periodEnd)}
                     </td>
                     <td className="px-3 py-2 text-right text-[12.5px] tabular-nums">
-                      {formatHours(invoice.approvedSeconds)}
+                      {invoice.kind === "MANUAL" ? (
+                        <span style={{ color: "var(--ink-subtle)" }}>—</span>
+                      ) : (
+                        formatHours(invoice.approvedSeconds)
+                      )}
                     </td>
                     <td
                       className="px-3 py-2 text-right text-[13px] font-semibold tabular-nums"
@@ -513,6 +606,145 @@ function VoidDialog({
           style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}
         />
       </Field>
+    </Dialog>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Manual invoice                                                             */
+/* -------------------------------------------------------------------------- */
+
+function ManualInvoiceDialog({
+  contractors,
+  periods,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  contractors: ContractorOption[];
+  periods: PeriodOption[];
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (input: {
+    contractorId: string;
+    payrollPeriodId: string;
+    description: string;
+    amount: string;
+  }) => void;
+}) {
+  // The most recent period is the one a bonus almost always belongs to, so it
+  // is preselected rather than left as an empty dropdown to hunt through.
+  const [contractorId, setContractorId] = React.useState(contractors[0]?.id ?? "");
+  const [payrollPeriodId, setPayrollPeriodId] = React.useState(periods[0]?.id ?? "");
+  const [description, setDescription] = React.useState("");
+  const [amount, setAmount] = React.useState("");
+
+  const wellFormedAmount = /^\d+(\.\d{1,2})?$/.test(amount.trim());
+  const positive = wellFormedAmount && Number(amount) > 0;
+  const ready = Boolean(contractorId && payrollPeriodId && description.trim() && positive);
+
+  const period = periods.find((option) => option.id === payrollPeriodId);
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="Add a manual invoice"
+      description="For a bonus, a reimbursement, or anything else not driven by hours. It goes out with the pay period you choose."
+      width="sm"
+      footer={
+        <>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            loading={busy}
+            disabled={!ready}
+            onClick={() =>
+              onSubmit({
+                contractorId,
+                payrollPeriodId,
+                description: description.trim(),
+                amount: amount.trim(),
+              })
+            }
+          >
+            Create invoice
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Field label="Contractor">
+          <Select value={contractorId} onChange={(event) => setContractorId(event.target.value)}>
+            {contractors.map((contractor) => (
+              <option key={contractor.id} value={contractor.id}>
+                {contractor.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field
+          label="Pay period"
+          hint={
+            period
+              ? `Deposits ${formatPlainDate(period.depositDate)}, with that week's other invoices.`
+              : "Which week's payment run this rides along with."
+          }
+        >
+          <Select
+            value={payrollPeriodId}
+            onChange={(event) => setPayrollPeriodId(event.target.value)}
+          >
+            {periods.map((option) => (
+              <option key={option.id} value={option.id}>
+                {formatPlainDate(option.periodStart)} – {formatPlainDate(option.periodEnd)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field
+          label="What it is for"
+          hint="Printed on the invoice as the line item. This is the only record of why the money was paid."
+        >
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Q3 performance bonus"
+            maxLength={200}
+            className="w-full rounded-md border px-2 py-1.5 text-[12.5px]"
+            style={{ borderColor: "var(--line-strong)", background: "var(--surface)" }}
+          />
+        </Field>
+
+        <Field
+          label="Amount (USD)"
+          hint={
+            amount.trim() === "" || positive
+              ? "No hours are recorded against a manual invoice."
+              : wellFormedAmount
+                ? "Must be more than zero."
+                : "Numbers only, up to two decimal places."
+          }
+        >
+          <input
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="500.00"
+            inputMode="decimal"
+            className="w-full rounded-md border px-2 py-1.5 text-right font-mono text-[12.5px] tabular-nums"
+            style={{
+              borderColor:
+                amount.trim() !== "" && !positive ? "var(--danger)" : "var(--line-strong)",
+              background: "var(--surface)",
+            }}
+          />
+        </Field>
+      </div>
     </Dialog>
   );
 }

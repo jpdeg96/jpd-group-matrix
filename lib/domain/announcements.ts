@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-manual-invoices",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "One-off invoices for bonuses and reimbursements",
+    body: "Add manual invoice on the Invoices screen raises an invoice that is not driven by hours. Pick the contractor, the week it should be paid with, say what it is for, and give an amount. It takes a -M1 number so it is never confused with that week's wage invoice, goes out with the same remittance, and gets its own PDF. Administrators only.",
+  },
+  {
     id: "2026-08-16-backfill-invoices",
     date: "Aug 16, 2026",
     kind: "added",

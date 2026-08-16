@@ -11,6 +11,8 @@ import {
   hoursFromSeconds,
   InvalidInvoicePrefixError,
   driveFileNameFor,
+  manualInvoiceNumberFor,
+  validateManualInvoice,
   invoiceNumberFor,
   parseInvoiceNumber,
   payPeriodContaining,
@@ -197,6 +199,71 @@ describe("calculatePay", () => {
     expect(
       calculatePay({ payType: "FLAT_WEEKLY", seconds: 0, weeklyAmount: null, hourlyRate: null }).toFixed(2),
     ).toBe("0.00");
+  });
+});
+
+describe("manual invoice numbers", () => {
+  it("suffixes -M so a bonus is distinguishable from the wage it accompanies", () => {
+    expect(manualInvoiceNumberFor("NAT", d("2026-07-05"), 1)).toBe("NAT-20260705-M1");
+  });
+
+  it("counts up for a second one in the same week", () => {
+    expect(manualInvoiceNumberFor("NAT", d("2026-07-05"), 2)).toBe("NAT-20260705-M2");
+    expect(manualInvoiceNumberFor("NAT", d("2026-07-05"), 12)).toBe("NAT-20260705-M12");
+  });
+
+  it("never collides with the wage invoice or a reissue of it", () => {
+    // All three can legitimately exist for one contractor in one week.
+    const wage = invoiceNumberFor("NAT", d("2026-07-05"));
+    const reissue = invoiceNumberFor("NAT", d("2026-07-05"), 2);
+    const bonus = manualInvoiceNumberFor("NAT", d("2026-07-05"), 1);
+    expect(new Set([wage, reissue, bonus]).size).toBe(3);
+  });
+
+  it("rejects a nonsense sequence", () => {
+    expect(() => manualInvoiceNumberFor("NAT", d("2026-07-05"), 0)).toThrow();
+    expect(() => manualInvoiceNumberFor("NAT", d("2026-07-05"), -1)).toThrow();
+    expect(() => manualInvoiceNumberFor("NAT", d("2026-07-05"), 1.5)).toThrow();
+  });
+});
+
+describe("manual invoice validation", () => {
+  const ok = {
+    contractorName: "Nathaly",
+    description: "Q3 performance bonus",
+    amount: new Decimal("500.00"),
+    periodStart: d("2026-07-05"),
+  };
+
+  it("accepts a well-formed one", () => {
+    expect(validateManualInvoice(ok)).toEqual([]);
+  });
+
+  it("insists on a description, because it is the only record of the reason", () => {
+    expect(validateManualInvoice({ ...ok, description: "" })).toHaveLength(1);
+    expect(validateManualInvoice({ ...ok, description: "   " })[0]).toContain("what the invoice is for");
+  });
+
+  it("refuses a zero or negative amount", () => {
+    // Unlike a wage, which is legitimately zero in a week nobody worked.
+    expect(validateManualInvoice({ ...ok, amount: new Decimal("0") })[0]).toContain("more than zero");
+    expect(validateManualInvoice({ ...ok, amount: new Decimal("-5") })[0]).toContain("more than zero");
+  });
+
+  it("flags an amount over the confirmation threshold rather than blocking it outright", () => {
+    const problems = validateManualInvoice({ ...ok, amount: new Decimal("100000.01") });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("threshold");
+  });
+
+  it("refuses a description too long for the invoice line", () => {
+    expect(validateManualInvoice({ ...ok, description: "x".repeat(201) })[0]).toContain("too long");
+  });
+
+  it("reports every problem at once rather than one at a time", () => {
+    expect(
+      validateManualInvoice({ ...ok, description: "", amount: new Decimal("0") }),
+    ).toHaveLength(2);
   });
 });
 

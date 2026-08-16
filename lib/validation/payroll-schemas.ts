@@ -7,6 +7,28 @@
  */
 
 import { z } from "zod";
+
+/**
+ * A one-off invoice: a bonus, a reimbursement, anything not driven by hours.
+ *
+ * The amount arrives as a string and stays one all the way to Decimal. Parsing
+ * it as a JavaScript number here would round it before it was ever money.
+ */
+export const manualInvoiceSchema = z.object({
+  contractorId: z.string().uuid(),
+  payrollPeriodId: z.string().uuid(),
+  description: z
+    .string()
+    .trim()
+    .min(1, "Say what the invoice is for — it is the only record of that.")
+    .max(200, "Keep it under 200 characters so it fits the invoice line."),
+  amount: z
+    .string()
+    .trim()
+    .regex(/^\d+(\.\d{1,2})?$/, "Enter the amount as a plain number, for example 250.00."),
+  /** Set only once somebody has confirmed an unusually large figure. */
+  confirmLargeAmounts: z.boolean().optional(),
+});
 import { APPROVAL_STATUSES, PAY_TYPES } from "@/lib/domain/payroll-format";
 
 /**

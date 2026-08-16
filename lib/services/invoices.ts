@@ -18,7 +18,10 @@ import { conflict, notFound, validationError } from "@/lib/errors";
 import {
   canGenerateInvoice,
   invoiceNumberFor,
+  manualInvoiceNumberFor,
+  roundMoney,
   validateInvoiceDraft,
+  validateManualInvoice,
   type ApprovalStatus,
   type PayType,
 } from "@/lib/domain/payroll";
@@ -198,6 +201,132 @@ export async function generateInvoicesForPeriod(
   }
 
   return result;
+}
+
+/**
+ * Raises a one-off invoice: a bonus, a reimbursement, anything not driven by
+ * hours.
+ *
+ * Deliberately not routed through the approval flow. An approval row exists to
+ * say "these hours are right", and there are no hours here — putting a bonus
+ * through it would mean approving a week that was never worked. What replaces
+ * that check is that only an administrator can raise one, every one is audited,
+ * and the description is mandatory, so the reason travels with the money.
+ *
+ * It rides along with a pay period so it inherits that week's deposit date and
+ * goes out with that week's remittance, which is how it actually gets paid.
+ */
+export async function createManualInvoice(
+  input: {
+    contractorId: string;
+    payrollPeriodId: string;
+    description: string;
+    /** Decimal string, as it came off the form. */
+    amount: string;
+  },
+  actor: ActorContext,
+  options: { confirmLargeAmounts?: boolean } = {},
+): Promise<{ invoiceNumber: string; amount: string; archived: boolean }> {
+  const [contractor, period] = await Promise.all([
+    prisma.contractor.findUnique({ where: { id: input.contractorId } }),
+    prisma.payrollPeriod.findUnique({ where: { id: input.payrollPeriodId } }),
+  ]);
+
+  if (!contractor) throw notFound("That contractor no longer exists.");
+  if (!period) throw notFound("That pay period no longer exists.");
+
+  if (!contractor.active) {
+    throw validationError(
+      `${contractor.name} is not active. Reactivate them before raising an invoice.`,
+    );
+  }
+
+  let amount: Decimal;
+  try {
+    amount = roundMoney(new Decimal(input.amount));
+  } catch {
+    throw validationError("Enter the amount as a plain number, for example 250.00.");
+  }
+
+  const periodStart = plainDateFromDbDate(period.periodStart);
+
+  const problems = validateManualInvoice({
+    contractorName: contractor.name,
+    description: input.description,
+    amount,
+    periodStart,
+  });
+
+  // A large amount is a question, not a defect — the same treatment the payroll
+  // path gives it.
+  const blocking = options.confirmLargeAmounts
+    ? problems.filter((problem) => !problem.includes("threshold"))
+    : problems;
+
+  if (blocking.length > 0) throw validationError(blocking.join(" "));
+
+  // Numbered by how many manual invoices this contractor already has for this
+  // week, void ones included — the number identifies a document, so one that
+  // existed must not have its number handed to another.
+  const priorManual = await prisma.invoice.count({
+    where: {
+      contractorId: input.contractorId,
+      payrollPeriodId: input.payrollPeriodId,
+      kind: "MANUAL",
+    },
+  });
+
+  const invoiceNumber = manualInvoiceNumberFor(
+    contractor.invoicePrefix,
+    periodStart,
+    priorManual + 1,
+  );
+
+  let invoice;
+  try {
+    invoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber,
+        kind: "MANUAL",
+        contractorId: input.contractorId,
+        payrollPeriodId: input.payrollPeriodId,
+        description: input.description.trim(),
+        // No pay type, no hours, no rate: the database refuses a manual
+        // invoice that carries any of them.
+        payType: null,
+        approvedSeconds: 0,
+        amount,
+        depositDate: period.depositDate,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw conflict("Another invoice with that number was just created. Try again.");
+    }
+    throw error;
+  }
+
+  await recordAudit({
+    ...auditActor(actor),
+    entityType: "INVOICE",
+    entityId: invoice.id,
+    action: "MANUAL_CREATED",
+    newValue: {
+      invoiceNumber,
+      contractor: contractor.name,
+      description: input.description.trim(),
+      amount: amount.toFixed(2),
+      periodStart,
+    },
+  });
+
+  const [outcome] = await archiveInvoices([invoice.id]);
+
+  return {
+    invoiceNumber,
+    amount: amount.toFixed(2),
+    archived: outcome?.uploaded ?? false,
+  };
 }
 
 export async function listInvoices(filters: { payrollPeriodId?: string } = {}) {

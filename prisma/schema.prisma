@@ -447,6 +447,19 @@ enum InvoiceStatus {
   @@map("invoice_status")
 }
 
+/// Where an invoice came from.
+enum InvoiceKind {
+  /// Generated from an approved week of hours. The normal path.
+  PAYROLL
+  /// Entered by hand — a bonus, a reimbursement, anything not driven by hours.
+  /// Carries a description instead of a pay type, and is exempt from the
+  /// one-live-invoice-per-week rule, since a bonus is paid alongside the wage
+  /// it accompanies rather than instead of it.
+  MANUAL
+
+  @@map("invoice_kind")
+}
+
 /// A person paid through payroll. Deliberately separate from `User`: someone
 /// can be paid without having a login, and can have a login without being paid.
 /// `userId` links the two where they happen to be the same person.
@@ -605,8 +618,18 @@ model Invoice {
   payrollPeriodId String        @map("payroll_period_id") @db.Uuid
   payrollPeriod   PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Restrict)
 
+  kind InvoiceKind @default(PAYROLL)
+
+  /// What a manual invoice is for — "Q3 bonus", "Equipment reimbursement".
+  /// Printed as the line item in place of the pay type. Required on a MANUAL
+  /// invoice and absent on a PAYROLL one; the database enforces both.
+  description String?
+
   /// Snapshots, as on the approval row.
-  payType         PayType  @map("pay_type")
+  ///
+  /// Null on a manual invoice: a bonus has no pay type, and storing one would
+  /// put a figure on the document that nothing derived it from.
+  payType         PayType? @map("pay_type")
   approvedSeconds Int      @default(0) @map("approved_seconds")
   weeklyAmount    Decimal? @map("weekly_amount") @db.Decimal(12, 2)
   hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(12, 4)
