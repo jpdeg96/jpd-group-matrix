@@ -11,6 +11,7 @@
  * change is visible almost immediately.
  */
 
+import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/db/prisma";
 import { todayInTimeZone, type PlainDate } from "@/lib/date/plain-date";
 import type { ScheduleConfig } from "@/lib/domain/review-schedule";
@@ -49,6 +50,16 @@ export interface AppSettings {
   /** Google Drive archiving. The service-account key stays in the environment. */
   driveUploadEnabled: boolean;
   driveFolderId: string | null;
+
+  /**
+   * Phantom Calculator rates, as decimal fractions — 0.2 is 20%.
+   *
+   * Null means "not set yet", and stays null rather than becoming a number.
+   * See `phantomTier1Rate` in the schema: the desktop calculator refuses to
+   * produce a purchase price until both are real.
+   */
+  phantomTier1Rate: number | null;
+  phantomStubHubRate: number | null;
 
   /** Discord notifications. The webhook URL stays in the environment. */
   discordEnabled: boolean;
@@ -118,6 +129,11 @@ export async function getSettings(): Promise<AppSettings> {
     clockifyWorkspaceId: row.clockifyWorkspaceId,
     driveUploadEnabled: row.driveUploadEnabled,
     driveFolderId: row.driveFolderId,
+    // Decimal → number. Safe here in a way it is not for money: a rate is four
+    // decimal places of a value below 1, which a double represents exactly
+    // enough that the division downstream is unaffected.
+    phantomTier1Rate: row.phantomTier1Rate?.toNumber() ?? null,
+    phantomStubHubRate: row.phantomStubHubRate?.toNumber() ?? null,
     discordEnabled: row.discordEnabled,
     discordLastReleaseId: row.discordLastReleaseId,
     clockifyHealthy: row.clockifyHealthy,
@@ -173,6 +189,10 @@ export interface UpdateSettingsInput {
   driveUploadEnabled?: boolean;
   driveFolderId?: string | null;
   discordEnabled?: boolean;
+
+  /** Phantom Calculator rates as decimal fractions. Null clears one. */
+  phantomTier1Rate?: number | null;
+  phantomStubHubRate?: number | null;
 }
 
 /**
@@ -187,6 +207,26 @@ export function isValidTimeZone(value: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Rejects a Phantom rate that is not a fraction.
+ *
+ * `null` is allowed and means "not set" — clearing a rate is a legitimate act,
+ * and the calculator handles the absence honestly by refusing to calculate.
+ */
+function assertRateFraction(
+  field: "phantomTier1Rate" | "phantomStubHubRate",
+  label: string,
+  value: number | null | undefined,
+): void {
+  if (value === undefined || value === null) return;
+
+  if (!Number.isFinite(value) || value < 0 || value >= 1) {
+    throw validationError(`The ${label} rate must be a decimal fraction below 1.`, {
+      [field]: [`Enter it as a decimal — 0.20 for 20%, not 20.`],
+    });
   }
 }
 
@@ -221,6 +261,13 @@ export async function updateSettings(
     });
   }
 
+  // The database refuses these too. Checking here as well is what turns a
+  // constraint violation into a sentence the administrator can act on, and the
+  // mistake being guarded against — typing 20 for 20% — is one somebody will
+  // make on their first visit to this card.
+  assertRateFraction("phantomTier1Rate", "Tier 1", input.phantomTier1Rate);
+  assertRateFraction("phantomStubHubRate", "StubHub", input.phantomStubHubRate);
+
   await prisma.settings.update({
     where: { id: SETTINGS_ID },
     data: {
@@ -251,6 +298,20 @@ export async function updateSettings(
         : {}),
       ...(input.discordEnabled !== undefined
         ? { discordEnabled: input.discordEnabled }
+        : {}),
+      // Stored through Decimal so the value that lands in Postgres is the one
+      // that was typed, at the column's own precision.
+      ...(input.phantomTier1Rate !== undefined
+        ? {
+            phantomTier1Rate:
+              input.phantomTier1Rate === null ? null : new Decimal(input.phantomTier1Rate),
+          }
+        : {}),
+      ...(input.phantomStubHubRate !== undefined
+        ? {
+            phantomStubHubRate:
+              input.phantomStubHubRate === null ? null : new Decimal(input.phantomStubHubRate),
+          }
         : {}),
       ...(input.businessName !== undefined ? { businessName: input.businessName } : {}),
       ...(input.businessAddress !== undefined

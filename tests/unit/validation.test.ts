@@ -145,6 +145,42 @@ describe("updateSettingsSchema", () => {
     expect(updateSettingsSchema.safeParse({ defaultTheme: "neon" }).success).toBe(false);
     expect(updateSettingsSchema.safeParse({ defaultTheme: "blossom" }).success).toBe(true);
   });
+
+  it("accepts Phantom Calculator rates as decimal fractions", () => {
+    const result = updateSettingsSchema.safeParse({
+      phantomTier1Rate: 0.2,
+      phantomStubHubRate: 0.25,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.phantomTier1Rate).toBe(0.2);
+      expect(result.data.phantomStubHubRate).toBe(0.25);
+    }
+  });
+
+  it("rejects a Phantom rate entered as a percentage", () => {
+    // The mistake somebody makes on their first visit to the card. Left
+    // unguarded it turns a $600 get-in into a $1.30 maximum purchase price,
+    // reported with a straight face.
+    expect(updateSettingsSchema.safeParse({ phantomTier1Rate: 20 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ phantomStubHubRate: 25 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ phantomTier1Rate: 1 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ phantomTier1Rate: -0.1 }).success).toBe(false);
+  });
+
+  it("allows a Phantom rate to be cleared", () => {
+    // Clearing is legitimate: an unset rate stops the desktop calculator
+    // answering, which is safer than a stale rate nobody trusts.
+    expect(updateSettingsSchema.safeParse({ phantomTier1Rate: null }).success).toBe(true);
+  });
+
+  it("rounds a Phantom rate to the column's four decimal places", () => {
+    const result = updateSettingsSchema.safeParse({ phantomTier1Rate: 0.20125 });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.phantomTier1Rate).toBe(0.2013);
+  });
 });
 
 describe("createUserSchema", () => {

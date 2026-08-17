@@ -74,6 +74,7 @@ cp .env.example .env
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | no | Remittance email. The from-address must be on a domain verified in Resend. |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | no | Files invoice PDFs into Drive. The downloaded service-account key, whole, on one line. Scope is `drive` — which for a service account means only what has been explicitly shared with it, since its own Drive is empty. |
 | `DISCORD_WEBHOOK_URL` | no | Posts releases, payroll runs and Clockify outages. The URL *is* the credential. |
+| `PHANTOM_RATES_TOKEN` | no | Locks down `/api/phantom-calculator/rates`, which the desktop Phantom Calculator reads. When set, callers must present `Authorization: Bearer <token>` or a signed-in session. Left unset the endpoint is open, on the same reasoning as `/api/health` — it is read-only and carries two markup rates, no credential and no business record. |
 | `SEED_PASSWORD` | no | Password for seeded demo users. Default `phantom1234`. |
 
 ---

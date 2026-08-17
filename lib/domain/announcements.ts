@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-16-phantom-calculator-rates",
+    date: "Aug 16, 2026",
+    kind: "added",
+    title: "Matrix now sets the Phantom Calculator rates",
+    body: "Settings has a Phantom Calculator section holding the Tier 1 and StubHub rates. The desktop Phantom Calculator reads them from here, so changing a rate once updates every copy — nobody has to be told, and no two people can be working from different numbers. Enter them as decimals: 0.20 means 20%. The card shows each one back as a percentage and works a $600 example through, so a rate typed as 20 instead of 0.20 is obvious before it is saved. Administrators only.",
+  },
+  {
     id: "2026-08-16-manual-invoices",
     date: "Aug 16, 2026",
     kind: "added",

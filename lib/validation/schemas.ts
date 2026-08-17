@@ -317,6 +317,22 @@ export const updateEventTypeSchema = z
 /* Settings                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A Phantom Calculator rate: a decimal fraction in [0, 1), or `null`.
+ *
+ * Four decimal places, matching the column. Rounded rather than rejected —
+ * 0.20125 is a person being more precise than the schedule needs, not an error
+ * worth stopping them for.
+ */
+const phantomRateSchema = z
+  .number()
+  .finite("Enter a number.")
+  .min(0, "A rate cannot be negative.")
+  .lt(1, "Enter the rate as a decimal — 0.20 for 20%, not 20.")
+  .transform((value) => Math.round(value * 10_000) / 10_000)
+  .nullable()
+  .optional();
+
 export const updateSettingsSchema = z
   .object({
     siteName: z.string().trim().min(1).max(80).optional(),
@@ -361,6 +377,15 @@ export const updateSettingsSchema = z
       .nullable()
       .optional(),
     discordEnabled: z.boolean().optional(),
+
+    // Phantom Calculator rates, as decimal fractions. `null` clears one, which
+    // is deliberately allowed: an unset rate stops the desktop calculator
+    // answering, and that is a safer state than a stale rate nobody trusts.
+    //
+    // The upper bound catches the obvious slip of typing 20 for 20%. Without
+    // it, a $600 get-in would report a $1.30 maximum purchase price.
+    phantomTier1Rate: phantomRateSchema,
+    phantomStubHubRate: phantomRateSchema,
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "No changes were supplied.",

@@ -368,6 +368,20 @@ model Settings {
   driveUploadEnabled Boolean @default(false) @map("drive_upload_enabled")
   driveFolderId      String? @map("drive_folder_id")
 
+  /// Phantom Calculator rates, read by the desktop calculator over
+  /// `/api/phantom-calculator/rates`.
+  ///
+  /// Decimal fractions, not percentages: 0.2000 is 20%. Four decimal places
+  /// because a rate is a rate — the same reasoning as `hourly_rate` on a
+  /// contractor. Rounding 0.0725 to cents before it multiplies a get-in price
+  /// would move the answer by real money on an expensive ticket.
+  ///
+  /// There is no default and never a fallback: these drive purchasing
+  /// decisions, so an unset rate must stop the calculator rather than let it
+  /// answer with a number nobody chose. A CHECK keeps them in [0, 1).
+  phantomTier1Rate    Decimal? @map("phantom_tier_1_rate") @db.Decimal(6, 4)
+  phantomStubHubRate  Decimal? @map("phantom_stubhub_rate") @db.Decimal(6, 4)
+
   /// Post releases, payroll runs and Clockify outages to a Discord channel.
   /// The webhook URL is itself the credential and lives in
   /// DISCORD_WEBHOOK_URL.

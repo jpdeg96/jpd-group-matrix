@@ -24,6 +24,7 @@ import type { AppSettings } from "@/lib/services/settings";
 import type { EventTypeView } from "@/lib/services/event-types";
 import { PayrollSettings } from "./payroll-settings";
 import { IntegrationSettings } from "./integration-settings";
+import { PhantomCalculatorSettings } from "./phantom-calculator-settings";
 
 /** Common zones offered as shortcuts; any IANA name may still be typed. */
 const TIMEZONE_SUGGESTIONS = [
@@ -72,6 +73,7 @@ export function SettingsView({
         driveKeyPresent={driveKeyPresent}
         discordWebhookPresent={discordWebhookPresent}
       />
+      <PhantomCalculatorSettings settings={settings} />
     </div>
   );
 }
