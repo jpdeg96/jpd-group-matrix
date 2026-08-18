@@ -29,6 +29,7 @@ import {
 import {
   bulkUpdateReviewDue,
   listC1Rows,
+  listCompletedStages,
   updateStage,
 } from "@/lib/services/stages";
 import { addNote, listNotes } from "@/lib/services/notes";
@@ -1074,6 +1075,85 @@ describe("promotion into C1", () => {
 
       expect(plain.map((r) => r.id)).not.toContain(event.id);
       expect(drilled.map((r) => r.id)).toContain(event.id);
+    });
+  });
+
+/* ---------------------------------------------------------------------- */
+
+  describe("review work done", () => {
+    /** Tick every stage on an event, which is what removes it from C1. */
+    async function finishAllStages(eventId: string, actor: typeof worker) {
+      for (;;) {
+        const rows = await listC1Rows();
+        const row = rows.find((r) => r.eventId === eventId);
+        if (!row) return;
+        await updateStage(row.stageId, { done: true }, actor);
+      }
+    }
+
+    it("still finds the work after the event has left C1", async () => {
+      // The bug this replaced: the drill-through filtered on events *currently*
+      // in C1, and finishing the reviews is exactly what takes an event out of
+      // it — so clicking a bar of real work opened an empty page.
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, worker);
+      await finishAllStages(event.id, worker);
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.status).not.toBe("C1");
+
+      const done = await listCompletedStages({ doneById: worker.effective.id });
+      expect(done).toHaveLength(5);
+      expect(done.every((row) => row.eventId === event.id)).toBe(true);
+    });
+
+    it("reports one row per checkpoint, not per event", async () => {
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, worker);
+
+      const rows = await listC1Rows();
+      await updateStage(rows[0]!.stageId, { done: true }, worker);
+
+      const done = await listCompletedStages({ doneById: worker.effective.id });
+      expect(done).toHaveLength(1);
+      expect(done[0]!.offsetDays).toBe(21);
+    });
+
+    it("keeps one person's work separate from another's", async () => {
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, manager);
+
+      const rows = await listC1Rows();
+      await updateStage(rows[0]!.stageId, { done: true }, worker);
+      const next = await listC1Rows();
+      await updateStage(next[0]!.stageId, { done: true }, manager);
+
+      expect(await listCompletedStages({ doneById: worker.effective.id })).toHaveLength(1);
+      expect(await listCompletedStages({ doneById: manager.effective.id })).toHaveLength(1);
+    });
+
+    it("agrees with the number the metrics bar showed", async () => {
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, worker);
+      await finishAllStages(event.id, worker);
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: worker.effective.id });
+      const done = await listCompletedStages({
+        doneById: worker.effective.id,
+        ...(metrics.from ? { from: metrics.from } : {}),
+        to: metrics.to,
+      });
+
+      expect(done).toHaveLength(metrics.totals.stagesDone);
+    });
+
+    it("says where the event ended up, so finished work is not read as live", async () => {
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, worker);
+      await finishAllStages(event.id, worker);
+
+      const done = await listCompletedStages({ doneById: worker.effective.id });
+      expect(done[0]!.eventStatus).toBe("COMPLETED");
     });
   });
 

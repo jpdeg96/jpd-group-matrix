@@ -160,18 +160,6 @@ export interface C1Filters {
    */
   hideOverdue?: boolean;
   today?: PlainDate;
-
-  /**
-   * Only events with a review stage completed by this person in this window.
-   *
-   * What the "C1 review stages done" bar drills through to. C1 shows an event's
-   * *current* stage, so this cannot show the finished stage itself — it shows
-   * the events that person did review work on, which is what somebody clicking
-   * their bar is actually asking to see.
-   */
-  stageDoneById?: string;
-  stageDoneFrom?: PlainDate;
-  stageDoneTo?: PlainDate;
 }
 
 /**
@@ -195,32 +183,6 @@ export async function listC1Rows(filters: C1Filters = {}): Promise<C1RowView[]> 
   };
 
   if (filters.eventTypeId) where.eventTypeId = filters.eventTypeId;
-
-  if (filters.stageDoneById) {
-    const zone = (await getSettings()).timeZone;
-
-    where.stages = {
-      some: {
-        status: "DONE",
-        doneById: filters.stageDoneById,
-        ...(filters.stageDoneFrom || filters.stageDoneTo
-          ? {
-              doneAt: {
-                // Business-timezone boundaries, matching how Metrics buckets
-                // the same work. UTC ones would drop an evening's reviews from
-                // one side and add them to the other.
-                ...(filters.stageDoneFrom
-                  ? { gte: startOfBusinessDay(filters.stageDoneFrom, zone) }
-                  : {}),
-                ...(filters.stageDoneTo
-                  ? { lt: startOfBusinessDay(addDays(filters.stageDoneTo, 1), zone) }
-                  : {}),
-              },
-            }
-          : {}),
-      },
-    };
-  }
 
   if (filters.search) {
     const contains = filters.search;
@@ -557,5 +519,109 @@ export async function getEventStageHistory(eventId: string) {
     assigneeName: stage.assignee?.displayName ?? null,
     assigneeColor: stage.assignee?.color ?? null,
     doneByName: stage.doneBy?.displayName ?? null,
+  }));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Completed review work                                                      */
+/* -------------------------------------------------------------------------- */
+
+export interface CompletedStageView {
+  stageId: string;
+  eventId: string;
+  eventDate: PlainDate;
+  eventTypeName: string;
+  eventTypeEmoji: string | null;
+  awayTeam: string | null;
+  homeTeam: string | null;
+  venue: string | null;
+  /** Which checkpoint it was — 21, 14, 7 and so on. */
+  offsetDays: number;
+  reviewDue: PlainDate;
+  doneAt: string;
+  doneByName: string | null;
+  doneByColor: string | null;
+  /** Where the event ended up, so a finished one is not mistaken for live work. */
+  eventStatus: "DASHBOARD" | "C1" | "COMPLETED" | "CANCELLED";
+  legacySource: string | null;
+}
+
+/**
+ * Review checkpoints somebody actually ticked off, newest first.
+ *
+ * Deliberately *not* a variant of `listC1Rows`. That function answers "what is
+ * outstanding": it shows one row per event, on its current pending stage, and
+ * an event whose stages are all done has left C1 entirely. Ticking off review
+ * work is precisely what removes an event from that list, so asking it "which
+ * stages did this person complete" returns nothing — which is what the Metrics
+ * drill-through hit.
+ *
+ * This asks the opposite question and so has the opposite shape: one row per
+ * completed stage, keyed to the stage rather than the event, with no filter on
+ * the event's current status. An event that finished last month is exactly the
+ * kind of thing this should show.
+ */
+export async function listCompletedStages(filters: {
+  doneById?: string;
+  from?: PlainDate;
+  to?: PlainDate;
+  limit?: number;
+}): Promise<CompletedStageView[]> {
+  const zone = (await getSettings()).timeZone;
+
+  const stages = await prisma.reviewStage.findMany({
+    where: {
+      status: "DONE",
+      doneAt: {
+        not: null,
+        ...(filters.from ? { gte: startOfBusinessDay(filters.from, zone) } : {}),
+        ...(filters.to ? { lt: startOfBusinessDay(addDays(filters.to, 1), zone) } : {}),
+      },
+      ...(filters.doneById ? { doneById: filters.doneById } : {}),
+    },
+    select: {
+      id: true,
+      offsetDays: true,
+      reviewDue: true,
+      doneAt: true,
+      doneBy: { select: { displayName: true, color: true } },
+      event: {
+        select: {
+          id: true,
+          eventDate: true,
+          status: true,
+          venue: true,
+          awayTeam: true,
+          homeTeam: true,
+          legacySource: true,
+          eventType: { select: { name: true, emoji: true } },
+        },
+      },
+    },
+    // Newest first: "what did I get through" is read from the top down. The
+    // stage id breaks ties so the order is total, for the same reason every
+    // other listing here ends on an id.
+    orderBy: [{ doneAt: "desc" }, { id: "asc" }],
+    take: filters.limit ?? 500,
+  });
+
+  return stages.map((stage) => ({
+    stageId: stage.id,
+    eventId: stage.event.id,
+    eventDate: plainDateFromDbDate(stage.event.eventDate),
+    eventTypeName: stage.event.eventType.name,
+    eventTypeEmoji: stage.event.eventType.emoji,
+    awayTeam: stage.event.awayTeam,
+    homeTeam: stage.event.homeTeam,
+    venue: stage.event.venue,
+    offsetDays: stage.offsetDays,
+    reviewDue: plainDateFromDbDate(stage.reviewDue),
+    // Non-null by the query: a DONE stage without a timestamp is refused by
+    // `review_stages_done_coherent_check`.
+    doneAt: stage.doneAt!.toISOString(),
+    doneByName: stage.doneBy?.displayName ?? null,
+    doneByColor: stage.doneBy?.color ?? null,
+    eventStatus: stage.event.status,
+    legacySource: stage.event.legacySource,
   }));
 }

@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-17-review-work-done",
+    date: "Aug 17, 2026",
+    kind: "fixed",
+    title: "Clicking a C1 stages bar now shows the work",
+    body: "It opened an empty C1 page. Finishing an events reviews is exactly what removes it from C1, so filtering C1 by who did the work could only ever find the few still in progress. It now opens a Review work done list: one row per checkpoint ticked, including events that have since finished, with the date, which checkpoint it was, and where the event ended up.",
+  },
+  {
     id: "2026-08-17-workflow-changes",
     date: "Aug 17, 2026",
     kind: "changed",

@@ -1,5 +1,6 @@
 import { requirePageActor } from "@/lib/auth/guards";
-import { getC1Stats, listC1Rows } from "@/lib/services/stages";
+import { getC1Stats, listC1Rows, listCompletedStages } from "@/lib/services/stages";
+import { CompletedStagesView } from "@/components/c1/completed-stages-view";
 import { listSelectableUsers } from "@/lib/services/users";
 import { listActiveEventTypes } from "@/lib/services/event-types";
 import { businessToday, getSettings } from "@/lib/services/settings";
@@ -27,18 +28,28 @@ export default async function C1Page({
   // Overdue rows are excluded from C1 by request. They still exist and are
   // still worked — the header reports how many are hidden so they are not
   // silently lost.
+  if (stageDoneBy) {
+    const [done, users] = await Promise.all([
+      listCompletedStages({
+        doneById: stageDoneBy,
+        ...(isPlainDate(from) ? { from: toPlainDate(from) } : {}),
+        ...(isPlainDate(to) ? { to: toPlainDate(to) } : {}),
+      }),
+      listSelectableUsers(),
+    ]);
+
+    return (
+      <CompletedStagesView
+        rows={done}
+        personName={users.find((user) => user.id === stageDoneBy)?.displayName ?? null}
+        from={isPlainDate(from) ? toPlainDate(from) : null}
+        to={isPlainDate(to) ? toPlainDate(to) : null}
+      />
+    );
+  }
+
   const [rows, stats] = await Promise.all([
-    // Arriving from a Metrics bar asks a different question — "what did this
-    // person review" — so the default overdue trim does not apply: it would
-    // hide work they demonstrably did.
-    stageDoneBy
-      ? listC1Rows({
-          today,
-          stageDoneById: stageDoneBy,
-          ...(isPlainDate(from) ? { stageDoneFrom: toPlainDate(from) } : {}),
-          ...(isPlainDate(to) ? { stageDoneTo: toPlainDate(to) } : {}),
-        })
-      : listC1Rows({ hideOverdue: true, today }),
+    listC1Rows({ hideOverdue: true, today }),
     getC1Stats(actor.effective.id, today),
   ]);
 
