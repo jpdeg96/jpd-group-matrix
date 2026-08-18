@@ -31,7 +31,57 @@ export function isClockifyConfigured(): boolean {
   return clockifyApiKey() !== null;
 }
 
+/**
+ * Whether a failure is worth trying again.
+ *
+ * A timeout, an unreachable host, a rate limit or a 5xx are all "ask again in a
+ * moment". A 401, 403 or 404 is a configuration answer and will be identical
+ * however many times it is asked — retrying those only delays the message that
+ * tells somebody what to fix.
+ */
+function isTransient(error: ClockifyError): boolean {
+  return error.status === 429 || error.status >= 500;
+}
+
+const RETRY_DELAYS_MS = [400, 1_200];
+
+/**
+ * One request, retried a bounded number of times on a transient failure.
+ *
+ * Without this a single slow response was a lost widget: the timeout is six
+ * seconds, Clockify occasionally takes longer, and there was nothing between
+ * "slow" and "unavailable". Two retries covers the overwhelming majority of
+ * those without turning a genuine outage into a page that hangs.
+ *
+ * Backoff rather than an immediate retry, because the most likely transient
+ * cause is rate limiting, and hammering it is how a brief limit becomes a
+ * sustained one.
+ */
 async function request<T>(path: string): Promise<T> {
+  let lastError: ClockifyError | null = null;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await requestOnce<T>(path);
+    } catch (error) {
+      if (!(error instanceof ClockifyError) || !isTransient(error)) throw error;
+
+      lastError = error;
+
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) break;
+
+      console.warn(
+        `[clockify] ${error.status} on ${path.split("?")[0]}, retrying in ${delay}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError ?? new ClockifyError(502, "Could not reach Clockify.");
+}
+
+async function requestOnce<T>(path: string): Promise<T> {
   const key = clockifyApiKey();
   if (!key) throw new ClockifyError(500, "CLOCKIFY_API_KEY is not configured.");
 
@@ -76,6 +126,7 @@ async function request<T>(path: string): Promise<T> {
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof ClockifyError) throw error;
+    // 504 and 502 are both above 500, so both are retried by `request`.
     if (error instanceof Error && error.name === "AbortError") {
       throw new ClockifyError(504, "Clockify did not respond in time.");
     }

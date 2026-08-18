@@ -22,7 +22,26 @@ export function Stamp({
   byColor: string | null;
   className?: string;
 }) {
-  if (!at) return null;
+  if (!at) {
+    // A placeholder rather than nothing, and deliberately the same markup with
+    // `invisible` — visibility:hidden still occupies its space.
+    //
+    // Returning null made the cell shorter, so ticking a checkbox grew its row
+    // and shunted every row beneath it down the page. Mid-scan that reads as
+    // the list jumping under you, and it is easy to tick the wrong row next.
+    // Matching the real markup means the reserved height is right by
+    // construction rather than by a guessed pixel value that drifts the moment
+    // the font size changes.
+    return (
+      <span
+        aria-hidden
+        className={cn("invisible flex items-center gap-1 whitespace-nowrap", className)}
+      >
+        <span className="h-2 w-2 shrink-0 rounded-full" />
+        <span className="text-[10.5px]">—</span>
+      </span>
+    );
+  }
 
   return (
     <span

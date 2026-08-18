@@ -14,12 +14,18 @@ export default async function MetricsPage({
 }) {
   const actor = await getActorContext();
   if (!actor) redirect("/sign-in");
-  // Per-person productivity data — not something the people being measured
-  // should be browsing about one another.
-  if (!canAssignOthers(actor.effective.role)) redirect("/dashboard");
+
+  // Everyone can see their own figures; only managers and administrators see
+  // anybody else's. The scoping happens in the query rather than in what gets
+  // rendered, so another person's numbers are never computed or sent — there
+  // is nothing to read out of the response.
+  const seesEveryone = canAssignOthers(actor.effective.role);
 
   const { period } = await searchParams;
-  const metrics = await getMetrics(isMetricsPeriod(period) ? period : "THIS_WEEK");
+  const metrics = await getMetrics(
+    isMetricsPeriod(period) ? period : "THIS_WEEK",
+    seesEveryone ? {} : { onlyUserId: actor.effective.id },
+  );
 
-  return <MetricsView initial={metrics} />;
+  return <MetricsView initial={metrics} scopedToSelf={!seesEveryone} />;
 }

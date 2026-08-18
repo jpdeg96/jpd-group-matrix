@@ -143,7 +143,15 @@
       "PowerShell(Stop-Process -Id 30004,5908 -Force -ErrorAction SilentlyContinue)",
       "Bash(curl -s -i http://localhost:3000/api/health)",
       "Bash(curl -s http://localhost:3000/api/health)",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(cd \"C:/Users/jpdeg/Downloads/beta_phantomchecker-events\" && echo \"=== calculator source in this repo? ===\" && git log --oneline --all -- '*calculator*' 2>/dev/null | head -3; ls -d ../*[Cc]alculator* ../*[Pp]hantom* 2>/dev/null | head -5; echo \"\\(nothing above = calculator app lives elsewhere\\)\" && echo && echo \"=== what the endpoint needs ===\" && grep -n \"phantomTier1Rate\\\\|phantomStubHubRate\" lib/services/settings.ts | head -6)",
+      "PowerShell($dotnet = Get-Command dotnet -ErrorAction SilentlyContinue; if \\($dotnet\\) { $dotnet.Source; & dotnet --version } else { \"dotnet not on PATH\"; Get-ChildItem \"C:\\\\Program Files\\\\dotnet\\\\dotnet.exe\" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName })",
+      "PowerShell(& \"C:\\\\Program Files\\\\dotnet\\\\dotnet.exe\" --version)",
+      "PowerShell(& \"C:\\\\Program Files\\\\dotnet\\\\dotnet.exe\" test \"C:\\\\Users\\\\jpdeg\\\\Downloads\\\\JPD_Calculator\\\\PhantomCalculator.sln\" --nologo -v q 2>&1)",
+      "Bash(grep -E \"Assert|Equal|\\\\\"\\\\\\\\\\\\$|// \")",
+      "Bash(awk '{printf \"%.1f MB  %s\\\\n\", $5/1024/1024, $NF}')",
+      "Bash(sed -n '/is idempotent — re-ticking/,/^    }\\);$/p' tests/integration/workflow.test.ts)",
+      "Bash(sed -n '/does not record a no-op re-tick/,/^    }\\);$/p' tests/integration/workflow.test.ts)"
     ]
   }
 }

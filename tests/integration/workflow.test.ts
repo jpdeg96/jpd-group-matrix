@@ -14,6 +14,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { addDays, dbDateFromPlainDate, plainDateFromDbDate, toPlainDate, type PlainDate } from "@/lib/date/plain-date";
 import { businessToday, invalidateSettingsCache } from "@/lib/services/settings";
+import { getMetrics } from "@/lib/services/metrics";
 import {
   createEvent,
   deleteEvent,
@@ -23,6 +24,7 @@ import {
   listDashboardEvents,
   resolveFlag,
   updateEvent,
+  sendToC1,
 } from "@/lib/services/events";
 import {
   bulkUpdateReviewDue,
@@ -104,7 +106,19 @@ suite("event workflow", () => {
 
   /* ---------------------------------------------------------------------- */
 
-  describe("promotion into C1", () => {
+  /**
+ * Complete an event and send it to C1.
+ *
+ * Ticking Complete no longer promotes on its own, so tests whose subject is
+ * what happens *in* C1 use this to get there in one line. Tests about the
+ * split itself call the two steps separately, on purpose.
+ */
+async function completeAndSend(eventId: string, actor: typeof manager) {
+  await updateEvent(eventId, { complete: true }, actor);
+  return sendToC1(eventId, actor);
+}
+
+describe("promotion into C1", () => {
     it("stays on the dashboard until Complete is ticked", async () => {
       const event = await makeEvent(30);
       const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
@@ -113,26 +127,56 @@ suite("event workflow", () => {
       expect(await stagesFor(event.id)).toHaveLength(0);
     });
 
-    it("ticking Complete promotes it and generates every stage", async () => {
+    it("ticking Complete records the completion but does not promote", async () => {
+      // The split. Finishing the dashboard work and deciding the event is ready
+      // for review are two judgements, so a mis-click on the checkbox no longer
+      // builds five review stages and moves the row to another screen.
       const event = await makeEvent(30);
-      const result = await updateEvent(event.id, { complete: true }, manager);
+      await updateEvent(event.id, { complete: true }, manager);
 
-      expect(result.promoted).toBe(true);
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.status).toBe("DASHBOARD");
+      expect(stored.completedAt).not.toBeNull();
+      expect(stored.completedById).toBe(manager.effective.id);
+      expect(stored.promotedAt).toBeNull();
+      expect(await stagesFor(event.id)).toHaveLength(0);
+    });
+
+    it("sending to C1 promotes it and generates every stage", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { complete: true }, manager);
+
+      const result = await sendToC1(event.id, manager);
+      expect(result.stagesCreated).toBe(5);
 
       const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
       expect(stored.status).toBe("C1");
-      expect(stored.completedAt).not.toBeNull();
-      expect(stored.completedById).toBe(manager.effective.id);
+      expect(stored.promotedAt).not.toBeNull();
 
       const stages = await stagesFor(event.id);
       expect(stages.map((s) => s.offsetDays)).toEqual([21, 14, 7, 5, 1]);
       expect(stages.every((s) => s.status === "PENDING")).toBe(true);
     });
 
+    it("refuses to send an event that has not been completed", async () => {
+      const event = await makeEvent(30);
+
+      await expect(sendToC1(event.id, manager)).rejects.toThrow(/Tick Complete first/);
+      expect(await stagesFor(event.id)).toHaveLength(0);
+    });
+
+    it("refuses to send the same event twice", async () => {
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, manager);
+
+      await expect(sendToC1(event.id, manager)).rejects.toThrow(/already in C1/);
+      expect(await stagesFor(event.id)).toHaveLength(5);
+    });
+
     it("marks stages already past at promotion as SKIPPED, not PENDING", async () => {
       // Completed 10 days out: D-21 and D-14 were never actionable.
       const event = await makeEvent(10);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       const stages = await stagesFor(event.id);
       const skipped = stages.filter((s) => s.status === "SKIPPED").map((s) => s.offsetDays);
@@ -144,7 +188,7 @@ suite("event workflow", () => {
 
     it("is idempotent — re-ticking Complete does not duplicate stages", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       await updateEvent(event.id, { complete: true }, manager);
 
       expect(await stagesFor(event.id)).toHaveLength(5);
@@ -156,7 +200,7 @@ suite("event workflow", () => {
   describe("C1 shows one row per event, on its current stage", () => {
     it("starts on the furthest-out stage and advances as each is done", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       let rows = await listC1Rows();
       expect(rows).toHaveLength(1);
@@ -175,7 +219,7 @@ suite("event workflow", () => {
 
     it("leaves C1 once every stage is resolved", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       for (let i = 0; i < 5; i += 1) {
         const rows = await listC1Rows();
@@ -191,7 +235,7 @@ suite("event workflow", () => {
 
     it("re-opening a stage brings the event back into C1", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       let stageId = "";
       for (let i = 0; i < 5; i += 1) {
@@ -210,7 +254,7 @@ suite("event workflow", () => {
 
     it("records who completed a stage and when", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       const rows = await listC1Rows();
 
       await updateStage(rows[0]!.stageId, { done: true }, worker);
@@ -225,7 +269,7 @@ suite("event workflow", () => {
 
     it("keeps a manually set review due date flagged as overridden", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       const rows = await listC1Rows();
 
       const manual = addDays(today, 3);
@@ -244,7 +288,7 @@ suite("event workflow", () => {
   describe("moving an event date warns instead of recalculating", () => {
     async function promoted() {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       return event;
     }
 
@@ -339,7 +383,7 @@ suite("event workflow", () => {
   describe("review due dates are administrator-only", () => {
     async function c1Row() {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       return (await listC1Rows())[0]!;
     }
 
@@ -419,7 +463,7 @@ suite("event workflow", () => {
 
     it("drops it from C1 as well", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       expect((await listC1Rows()).map((r) => r.eventId)).toContain(event.id);
 
       // Move the date into the past; it should leave staging too.
@@ -446,7 +490,7 @@ suite("event workflow", () => {
 
     it("archives on maintenance and keeps all its history", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       await addNote(event.id, "Worth keeping.", worker);
       const rows = await listC1Rows();
       await updateStage(
@@ -503,7 +547,7 @@ suite("event workflow", () => {
   describe("promoted events stay on the dashboard", () => {
     it("keeps the event listed once it has gone to C1", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       // Hidden from the default view…
       const open = await listDashboardEvents();
@@ -520,7 +564,7 @@ suite("event workflow", () => {
     it("does not count promoted events as outstanding work", async () => {
       await makeEvent(30);
       const second = await makeEvent(31);
-      await updateEvent(second.id, { complete: true }, manager);
+      await completeAndSend(second.id, manager);
 
       const stats = await getDashboardStats(manager.effective.id);
       expect(stats.total).toBe(1);
@@ -532,9 +576,9 @@ suite("event workflow", () => {
     it("records every tick and untick with attribution", async () => {
       const event = await makeEvent(30);
 
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       await updateEvent(event.id, { complete: false }, manager);
-      await updateEvent(event.id, { complete: true }, worker);
+      await completeAndSend(event.id, worker);
 
       const history = await getCompletionHistory(event.id);
 
@@ -552,7 +596,7 @@ suite("event workflow", () => {
 
     it("does not record a no-op re-tick", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       await updateEvent(event.id, { complete: true }, manager);
 
       // Ticking something already ticked changes nothing, so it is not history.
@@ -567,7 +611,7 @@ suite("event workflow", () => {
         real: admin.real,
         isImpersonating: true,
       };
-      await updateEvent(event.id, { complete: true }, impersonating);
+      await completeAndSend(event.id, impersonating);
 
       const [entry] = await getCompletionHistory(event.id);
       // The administrator is on the hook; the account they were viewing as is
@@ -580,7 +624,7 @@ suite("event workflow", () => {
   describe("returning an event to the dashboard", () => {
     it("allows undo while no stage work has happened", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       const result = await updateEvent(event.id, { complete: false }, manager);
       expect(result.demoted).toBe(true);
@@ -593,7 +637,7 @@ suite("event workflow", () => {
 
     it("refuses once a stage has been completed, rather than discarding the work", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       const rows = await listC1Rows();
       await updateStage(rows[0]!.stageId, { done: true }, worker);
 
@@ -608,7 +652,7 @@ suite("event workflow", () => {
   describe("deleting an event", () => {
     it("removes it from C1 as well", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       expect(await listC1Rows()).toHaveLength(1);
 
       const result = await deleteEvent(event.id, admin);
@@ -620,7 +664,7 @@ suite("event workflow", () => {
 
     it("cancels rather than deletes once there is completion history", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       const rows = await listC1Rows();
       await updateStage(rows[0]!.stageId, { done: true }, worker);
 
@@ -898,10 +942,145 @@ suite("event workflow", () => {
 
   /* ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------- */
+
+  describe("metrics scoped to one person", () => {
+    /** Two people each complete a distinguishable number of events. */
+    async function seedCompletions() {
+      for (let i = 0; i < 3; i += 1) {
+        const event = await makeEvent(20 + i);
+        await updateEvent(event.id, { complete: true }, worker);
+      }
+      for (let i = 0; i < 5; i += 1) {
+        const event = await makeEvent(40 + i);
+        await updateEvent(event.id, { complete: true }, manager);
+      }
+    }
+
+    it("reports the whole team when nobody is named", async () => {
+      await seedCompletions();
+
+      const metrics = await getMetrics("THIS_WEEK");
+
+      expect(metrics.totals.eventsCompleted).toBe(8);
+      expect(metrics.users.length).toBeGreaterThan(1);
+    });
+
+    it("reports only that person's work when one is named", async () => {
+      await seedCompletions();
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: worker.effective.id });
+
+      expect(metrics.users).toHaveLength(1);
+      expect(metrics.users[0]!.userId).toBe(worker.effective.id);
+      expect(metrics.users[0]!.eventsCompleted).toBe(3);
+    });
+
+    it("narrows the shared totals too, not just the per-person rows", async () => {
+      // Leaving "8 events completed" beside a bar of 3 would report the team's
+      // output on a page claiming to be about one person.
+      await seedCompletions();
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: worker.effective.id });
+
+      expect(metrics.totals.eventsCompleted).toBe(3);
+    });
+
+    it("never carries another person's figures in the response at all", async () => {
+      // The scoping is in the query, so somebody else's numbers are not merely
+      // hidden — they are never computed or sent.
+      await seedCompletions();
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: worker.effective.id });
+      const serialised = JSON.stringify(metrics);
+
+      expect(serialised).not.toContain(manager.effective.id);
+      expect(serialised).not.toContain("Manager");
+    });
+
+    it("still reports a person who did nothing, rather than an empty page", async () => {
+      await seedCompletions();
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: admin.effective.id });
+
+      expect(metrics.users).toHaveLength(1);
+      expect(metrics.users[0]!.eventsCompleted).toBe(0);
+      expect(metrics.totals.eventsCompleted).toBe(0);
+    });
+  });
+
+/* ---------------------------------------------------------------------- */
+
+  describe("drilling through from a metrics bar", () => {
+    it("returns exactly the events that person completed", async () => {
+      const mine = await makeEvent(20);
+      const theirs = await makeEvent(25);
+      await updateEvent(mine.id, { complete: true }, worker);
+      await updateEvent(theirs.id, { complete: true }, manager);
+
+      const rows = await listDashboardEvents({ completedById: worker.effective.id });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.id).toBe(mine.id);
+    });
+
+    it("agrees with the number the chart showed", async () => {
+      // The property that matters: a bar of three must not open a page of two.
+      for (let i = 0; i < 3; i += 1) {
+        const event = await makeEvent(20 + i);
+        await updateEvent(event.id, { complete: true }, worker);
+      }
+
+      const metrics = await getMetrics("THIS_WEEK", { onlyUserId: worker.effective.id });
+      const rows = await listDashboardEvents({
+        completedById: worker.effective.id,
+        ...(metrics.from ? { completedFrom: metrics.from } : {}),
+        completedTo: metrics.to,
+      });
+
+      expect(rows).toHaveLength(metrics.totals.eventsCompleted);
+    });
+
+    it("finds a completion made late in the business day", async () => {
+      // The bug this replaced used UTC boundaries. In Caracas, 21:38 is 01:38
+      // the next day in UTC, so an evening of work fell outside a window that
+      // the chart counted inside it.
+      const event = await makeEvent(20);
+      await updateEvent(event.id, { complete: true }, worker);
+
+      await prisma.event.update({
+        where: { id: event.id },
+        // 20:30 Caracas today, which is tomorrow in UTC.
+        data: { completedAt: new Date(new Date(today + "T00:00:00Z").getTime() + 86_400_000 + 30 * 60_000) },
+      });
+
+      const rows = await listDashboardEvents({
+        completedById: worker.effective.id,
+        completedFrom: today,
+        completedTo: today,
+      });
+
+      expect(rows).toHaveLength(1);
+    });
+
+    it("shows completed events even though they are hidden by default", async () => {
+      // The dashboard defaults to outstanding work. A drill-through asks about
+      // finished work, so those defaults must not apply.
+      const event = await makeEvent(20);
+      await completeAndSend(event.id, worker);
+
+      const plain = await listDashboardEvents({});
+      const drilled = await listDashboardEvents({ completedById: worker.effective.id });
+
+      expect(plain.map((r) => r.id)).not.toContain(event.id);
+      expect(drilled.map((r) => r.id)).toContain(event.id);
+    });
+  });
+
   describe("database constraints", () => {
     it("refuses a DONE stage with no completion instant", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
       const stage = (await stagesFor(event.id))[0]!;
 
       // The coherence constraint is what caught a real ordering bug before.
@@ -915,7 +1094,7 @@ suite("event workflow", () => {
 
     it("refuses a duplicate stage for the same event", async () => {
       const event = await makeEvent(30);
-      await updateEvent(event.id, { complete: true }, manager);
+      await completeAndSend(event.id, manager);
 
       await expect(
         prisma.reviewStage.create({

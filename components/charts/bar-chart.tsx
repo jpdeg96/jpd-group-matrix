@@ -34,6 +34,8 @@ export function BarChart({
   emptyMessage = "Nothing recorded in this period.",
   barHeight = 22,
   gap = 10,
+  onSelect,
+  selectHint,
 }: {
   data: BarDatum[];
   color: string;
@@ -41,6 +43,18 @@ export function BarChart({
   emptyMessage?: string;
   barHeight?: number;
   gap?: number;
+  /**
+   * Makes each bar open the rows behind it.
+   *
+   * A bar is already a statement about a specific set of records, so being able
+   * to see that set is the obvious next question. Given this, the row becomes a
+   * real button — focusable and keyboard-operable — rather than a div with a
+   * click handler, which would be interactive to a mouse and inert to anything
+   * else.
+   */
+  onSelect?: (datum: BarDatum) => void;
+  /** Appended to the tooltip so the bar says it can be opened. */
+  selectHint?: string;
 }) {
   const [hovered, setHovered] = React.useState<string | null>(null);
 
@@ -65,18 +79,42 @@ export function BarChart({
         const inside = pct > 18;
         const active = hovered === datum.key;
 
+        const base = datum.hint
+          ? `${datum.label}: ${valueFormatter(datum.value)} · ${datum.hint}`
+          : `${datum.label}: ${valueFormatter(datum.value)}`;
+
+        // A zero bar has nothing behind it, so it is not offered as a link.
+        const openable = Boolean(onSelect) && datum.value > 0;
+
         return (
           <div
             key={datum.key}
-            className="flex items-center"
-            style={{ height: barHeight + gap }}
+            role={openable ? "button" : undefined}
+            tabIndex={openable ? 0 : undefined}
+            className={cn(
+              "flex items-center rounded-sm",
+              openable
+                ? "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2"
+                : "",
+            )}
+            style={{
+              height: barHeight + gap,
+              ...(openable ? { outlineColor: "var(--accent)" } : {}),
+            }}
             onMouseEnter={() => setHovered(datum.key)}
             onMouseLeave={() => setHovered(null)}
-            title={
-              datum.hint
-                ? `${datum.label}: ${valueFormatter(datum.value)} · ${datum.hint}`
-                : `${datum.label}: ${valueFormatter(datum.value)}`
+            onClick={openable ? () => onSelect!(datum) : undefined}
+            onKeyDown={
+              openable
+                ? (event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect!(datum);
+                    }
+                  }
+                : undefined
             }
+            title={openable && selectHint ? `${base} — ${selectHint}` : base}
           >
             <span
               className="flex shrink-0 items-center gap-1.5 truncate pr-2 text-[11.5px]"

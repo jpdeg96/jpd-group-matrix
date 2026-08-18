@@ -26,7 +26,8 @@ import {
   stageScheduleDrift,
   type ScheduleConfig,
 } from "@/lib/domain/review-schedule";
-import { businessToday, getScheduleConfig } from "./settings";
+import { businessToday, getScheduleConfig, getSettings } from "./settings";
+import { startOfBusinessDay } from "./clockify";
 import { conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { canAdminister } from "@/lib/domain/constants";
 import { assertCanAssign, auditActor, type ActorContext } from "@/lib/auth/actor";
@@ -159,6 +160,18 @@ export interface C1Filters {
    */
   hideOverdue?: boolean;
   today?: PlainDate;
+
+  /**
+   * Only events with a review stage completed by this person in this window.
+   *
+   * What the "C1 review stages done" bar drills through to. C1 shows an event's
+   * *current* stage, so this cannot show the finished stage itself — it shows
+   * the events that person did review work on, which is what somebody clicking
+   * their bar is actually asking to see.
+   */
+  stageDoneById?: string;
+  stageDoneFrom?: PlainDate;
+  stageDoneTo?: PlainDate;
 }
 
 /**
@@ -182,6 +195,32 @@ export async function listC1Rows(filters: C1Filters = {}): Promise<C1RowView[]> 
   };
 
   if (filters.eventTypeId) where.eventTypeId = filters.eventTypeId;
+
+  if (filters.stageDoneById) {
+    const zone = (await getSettings()).timeZone;
+
+    where.stages = {
+      some: {
+        status: "DONE",
+        doneById: filters.stageDoneById,
+        ...(filters.stageDoneFrom || filters.stageDoneTo
+          ? {
+              doneAt: {
+                // Business-timezone boundaries, matching how Metrics buckets
+                // the same work. UTC ones would drop an evening's reviews from
+                // one side and add them to the other.
+                ...(filters.stageDoneFrom
+                  ? { gte: startOfBusinessDay(filters.stageDoneFrom, zone) }
+                  : {}),
+                ...(filters.stageDoneTo
+                  ? { lt: startOfBusinessDay(addDays(filters.stageDoneTo, 1), zone) }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    };
+  }
 
   if (filters.search) {
     const contains = filters.search;
@@ -221,11 +260,16 @@ export async function listC1Rows(filters: C1Filters = {}): Promise<C1RowView[]> 
     rows = rows.filter((row) => row.reviewDue >= filters.today!);
   }
 
+  // Ends on the stage id for the same reason the dashboard ordering ends on the
+  // event id: two rows that tie on every visible key must still come back in
+  // the same order every time, or they swap places on any re-query and a row
+  // appears to jump a line while somebody is working it.
   return rows.sort(
     (a, b) =>
       a.reviewDue.localeCompare(b.reviewDue) ||
       a.eventDate.localeCompare(b.eventDate) ||
-      b.offsetDays - a.offsetDays,
+      b.offsetDays - a.offsetDays ||
+      a.stageId.localeCompare(b.stageId),
   );
 }
 

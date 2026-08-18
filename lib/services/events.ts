@@ -9,11 +9,13 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
+  addDays,
   dbDateFromPlainDate,
   plainDateFromDbDate,
   toPlainDate,
   type PlainDate,
 } from "@/lib/date/plain-date";
+import { startOfBusinessDay } from "./clockify";
 import {
   buildReviewSchedule,
   stageScheduleDrift,
@@ -160,6 +162,18 @@ export interface DashboardFilters {
   includePromoted?: boolean;
   /** Only events currently flagged for manager review. */
   flaggedOnly?: boolean;
+
+  /**
+   * Only events completed by this person, within this window.
+   *
+   * What a Metrics bar drills through to. It filters on *when the completion
+   * happened*, not on the event's own date — "what did Nesterly finish last
+   * week" is a question about the work, not about which matches are on.
+   */
+  completedById?: string;
+  completedFrom?: PlainDate;
+  completedTo?: PlainDate;
+
   sort?: DashboardSortKey;
   direction?: "asc" | "desc";
 }
@@ -192,6 +206,40 @@ export async function listDashboardEvents(
   if (filters.eventTypeId) where.eventTypeId = filters.eventTypeId;
   if (filters.flaggedOnly) where.flaggedAt = { not: null };
 
+  if (filters.completedById) {
+    where.completedById = filters.completedById;
+
+    // The defaults above are "outstanding work": not promoted, not archived,
+    // not in the past. Every one of them would hide a completed event, so a
+    // drill-through would land on an empty screen while the chart it came from
+    // said six. Asking about finished work means answering about finished work.
+    where.status = { in: ["DASHBOARD", "C1", "COMPLETED"] };
+    delete where.archivedAt;
+    delete where.eventDate;
+  }
+
+  if (filters.completedFrom || filters.completedTo) {
+    // Business-timezone boundaries, not UTC ones. A completion at 21:38 in
+    // Caracas is 01:38 the next day in UTC, so a UTC-bounded "up to the 17th"
+    // silently drops an evening's work — and the Metrics chart this drills
+    // through from buckets by business date, so the two would disagree about
+    // the same events. Every date boundary in this system is a business-date
+    // question; this is the same rule, not a special case.
+    const zone = (await getSettings()).timeZone;
+
+    where.completedAt = {
+      ...(filters.completedFrom
+        ? { gte: startOfBusinessDay(filters.completedFrom, zone) }
+        : {}),
+      ...(filters.completedTo
+        ? {
+            // The instant before the following business day begins.
+            lt: startOfBusinessDay(addDays(filters.completedTo, 1), zone),
+          }
+        : {}),
+    };
+  }
+
   if (filters.assigneeId) {
     where.assigneeId = filters.assigneeId === "UNASSIGNED" ? null : filters.assigneeId;
   }
@@ -222,20 +270,34 @@ export async function listDashboardEvents(
 
   // Relation sorts (type, assignee) go through the related column so Postgres
   // does the ordering rather than the application.
+  //
+  // Every ordering ends with `id`, and that is not decoration. SQL guarantees
+  // nothing about the order of rows whose sort keys are equal, so any tie left
+  // unbroken is free to come back differently on the next query — and this
+  // screen re-queries whenever anybody ticks a box. The result was a row
+  // visibly jumping a line under the cursor.
+  //
+  // It went unnoticed until the spreadsheet import, which inserted 615 events
+  // in a single statement and gave 563 of them the same `created_at` to the
+  // millisecond. Before that, creation times were naturally distinct and the
+  // tie almost never arose. The ordering was always underspecified; the import
+  // only made it visible.
+  const stable: Prisma.EventOrderByWithRelationInput = { id: "asc" };
+
   const orderBy: Prisma.EventOrderByWithRelationInput[] =
     filters.sort === "eventType"
-      ? [{ eventType: { name: direction } }, { eventDate: "asc" }]
+      ? [{ eventType: { name: direction } }, { eventDate: "asc" }, stable]
       : filters.sort === "assignee"
-        ? [{ assignee: { displayName: direction } }, { eventDate: "asc" }]
+        ? [{ assignee: { displayName: direction } }, { eventDate: "asc" }, stable]
         : filters.sort === "awayTeam"
-          ? [{ awayTeam: direction }, { eventDate: "asc" }]
+          ? [{ awayTeam: direction }, { eventDate: "asc" }, stable]
           : filters.sort === "homeTeam"
-            ? [{ homeTeam: direction }, { eventDate: "asc" }]
+            ? [{ homeTeam: direction }, { eventDate: "asc" }, stable]
             : filters.sort === "venue"
-              ? [{ venue: direction }, { eventDate: "asc" }]
+              ? [{ venue: direction }, { eventDate: "asc" }, stable]
               : filters.sort === "createdAt"
-                ? [{ createdAt: direction }]
-                : [{ eventDate: direction }, { createdAt: "asc" }];
+                ? [{ createdAt: direction }, stable]
+                : [{ eventDate: direction }, { createdAt: "asc" }, stable];
 
   const events = await prisma.event.findMany({
     where,
@@ -406,48 +468,40 @@ export async function updateEvent(
     const isComplete = existing.completedAt !== null;
 
     if (input.complete && !isComplete) {
+      // Completion no longer promotes. Ticking Complete records that the work
+      // on the dashboard is finished; deciding the event is ready for review is
+      // a separate judgement, made with `sendToC1`.
+      //
+      // They used to be one act, which meant a mis-click built five review
+      // stages and moved the row to another screen. Splitting them costs one
+      // button and makes the destructive half deliberate.
       data.completedAt = new Date();
       data.completedById = actor.effective.id;
-      data.status = "C1";
-      data.promotedAt = new Date();
-      promoted = true;
     } else if (!input.complete && isComplete) {
       await assertSafeToDemote(eventId);
       data.completedAt = null;
       data.completedById = null;
-      data.status = "DASHBOARD";
-      data.promotedAt = null;
-      demoted = true;
+
+      // Unticking Complete on an event already sent to C1 pulls it back, since
+      // `assertSafeToDemote` has proved no review work would be lost.
+      if (existing.status === "C1") {
+        data.status = "DASHBOARD";
+        data.promotedAt = null;
+        demoted = true;
+      }
     }
   }
 
   // The status flip and the stage rows must land together: an event must never
-  // be sitting in C1 with no stages, or back on the dashboard with orphans.
+  // be back on the dashboard with orphaned stages.
   await prisma.$transaction(async (tx) => {
     if (Object.keys(data).length > 0) {
       await tx.event.update({ where: { id: eventId }, data });
     }
 
-    if (promoted) {
-      const eventDate = plainDateFromDbDate(
-        input.eventDate !== undefined
-          ? dbDateFromPlainDate(toPlainDate(input.eventDate))
-          : existing.eventDate,
-      );
-      await createStagesForEvent(tx, eventId, eventDate);
-    }
-
     if (demoted) {
       // Safe because assertSafeToDemote proved no stage work exists.
       await tx.reviewStage.deleteMany({ where: { eventId } });
-    }
-
-    if (promoted) {
-      // Completing the event is one of the three things that ends a claim on
-      // it. Released here rather than in the browser so it holds however the
-      // completion arrived — the Dashboard, a second tab, or an import — and
-      // so nobody is left showing as working on something already finished.
-      await tx.presence.deleteMany({ where: { eventId } });
     }
   });
 
@@ -467,12 +521,16 @@ export async function updateEvent(
   // Completion toggles get their own audit actions rather than being buried in
   // a generic UPDATE. They are the thing people ask about after the fact —
   // "who unchecked this, and when?" — so they need to be directly queryable.
-  if (promoted || demoted) {
+  const completionChanged =
+    input.complete !== undefined &&
+    (existing.completedAt !== null) !== (event.completedAt !== null);
+
+  if (completionChanged) {
     await recordAudit({
       ...auditActor(actor),
       entityType: "EVENT",
       entityId: eventId,
-      action: promoted ? "COMPLETE_CHECKED" : "COMPLETE_UNCHECKED",
+      action: event.completedAt ? "COMPLETE_CHECKED" : "COMPLETE_UNCHECKED",
       oldValue: { completedAt: existing.completedAt?.toISOString() ?? null },
       newValue: { completedAt: event.completedAt },
     });
@@ -495,6 +553,75 @@ export async function updateEvent(
   }
 
   return { event, promoted, demoted };
+}
+
+/**
+ * Sends a completed event into C1, building its review stages.
+ *
+ * The second half of what ticking Complete used to do in one go. Separating
+ * them means the review pipeline is entered on purpose: a mis-click on a
+ * checkbox no longer creates five stage rows and moves the row to another
+ * screen, and an event can sit finished-but-not-submitted while somebody
+ * decides, which is a state the old model could not express.
+ *
+ * Completion is still the precondition. An event with no completion has no
+ * date to schedule its checkpoints against, and the database says the same
+ * thing independently through `events_c1_requires_completion_check`.
+ */
+export async function sendToC1(
+  eventId: string,
+  actor: ActorContext,
+): Promise<{ event: DashboardEventView; stagesCreated: number }> {
+  const existing = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, status: true, completedAt: true, eventDate: true, archivedAt: true },
+  });
+
+  if (!existing) throw notFound("That event no longer exists.");
+
+  if (existing.completedAt === null) {
+    throw conflict("Tick Complete first — an event needs a completion before it can go to C1.");
+  }
+
+  if (existing.status === "C1") {
+    throw conflict("That event is already in C1.");
+  }
+
+  if (existing.status === "CANCELLED") {
+    throw conflict("That event was cancelled. Reinstate it before sending it to C1.");
+  }
+
+  if (existing.archivedAt !== null) {
+    throw conflict("That event's date has passed, so there is nothing left to review.");
+  }
+
+  const eventDate = plainDateFromDbDate(existing.eventDate);
+
+  const stagesCreated = await prisma.$transaction(async (tx) => {
+    await tx.event.update({
+      where: { id: eventId },
+      data: { status: "C1", promotedAt: new Date() },
+    });
+
+    const created = await createStagesForEvent(tx, eventId, eventDate);
+
+    // Sending to C1 ends a claim on the dashboard row: the work that claim
+    // described is done. Released here rather than in the browser so it holds
+    // however the send arrived.
+    await tx.presence.deleteMany({ where: { eventId } });
+
+    return created;
+  });
+
+  await recordAudit({
+    ...auditActor(actor),
+    entityType: "EVENT",
+    entityId: eventId,
+    action: "SENT_TO_C1",
+    newValue: { stagesCreated, eventDate },
+  });
+
+  return { event: await getEvent(eventId), stagesCreated };
 }
 
 /**

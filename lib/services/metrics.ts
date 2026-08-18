@@ -106,13 +106,30 @@ async function toInstantRange(range: PeriodRange): Promise<{ gte?: Date; lte: Da
     : { lte };
 }
 
-export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> {
+/**
+ * Productivity figures for a period.
+ *
+ * `onlyUserId` narrows every figure to one person, which is what a regular
+ * user sees. It is applied to the *aggregation*, not to the rendering: nobody
+ * else's counts are computed, totalled or sent, so the numbers cannot be read
+ * out of a response by somebody who should not have them.
+ *
+ * Shared totals are narrowed to match. Leaving "events completed: 40" beside
+ * one person's bar of 6 would report the team's output on a page that claims
+ * to be about them.
+ */
+export async function getMetrics(
+  period: MetricsPeriod,
+  options: { onlyUserId?: string } = {},
+): Promise<MetricsResult> {
+  const onlyUserId = options.onlyUserId ?? null;
   const today = await businessToday();
   const range = resolveMetricsPeriod(period, today);
   const window = await toInstantRange(range);
 
   const [users, types, events, stages, notes] = await Promise.all([
     prisma.user.findMany({
+      where: onlyUserId ? { id: onlyUserId } : {},
       select: {
         id: true,
         displayName: true,
@@ -129,7 +146,10 @@ export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> 
     // Completions in the window, with everything the per-user and per-type
     // aggregations need, fetched once rather than as a query per person.
     prisma.event.findMany({
-      where: { completedAt: window },
+      where: {
+        completedAt: window,
+        ...(onlyUserId ? { completedById: onlyUserId } : {}),
+      },
       select: {
         completedAt: true,
         completedById: true,
@@ -141,11 +161,18 @@ export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> 
       },
     }),
     prisma.reviewStage.findMany({
-      where: { status: "DONE", doneAt: window },
+      where: {
+        status: "DONE",
+        doneAt: window,
+        ...(onlyUserId ? { doneById: onlyUserId } : {}),
+      },
       select: { doneById: true },
     }),
     prisma.eventNote.findMany({
-      where: { createdAt: window },
+      where: {
+        createdAt: window,
+        ...(onlyUserId ? { authorId: onlyUserId } : {}),
+      },
       select: { authorId: true },
     }),
   ]);
@@ -256,6 +283,7 @@ export async function getMetrics(period: MetricsPeriod): Promise<MetricsResult> 
   const hours = await getHoursByUser(
     startOfBusinessDay(hoursFrom, settings.timeZone),
     endExclusive > nowInstant ? nowInstant : endExclusive,
+    onlyUserId ? { onlyUserId } : {},
   );
 
   const spanDays = dayKeys.length || 1;

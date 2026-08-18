@@ -23,7 +23,9 @@ interface NavUser {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Event Dashboard" },
   { href: "/c1", label: "C1" },
-  { href: "/metrics", label: "Metrics", managerOnly: true },
+  // Everyone: a regular user sees only their own figures, which the page and
+  // the API both scope from the session rather than from the request.
+  { href: "/metrics", label: "Metrics" },
   // Managers approve weeks; only administrators can generate invoices or
   // record payments, which the payroll screens enforce themselves.
   { href: "/payroll", label: "Payroll", managerOnly: true },

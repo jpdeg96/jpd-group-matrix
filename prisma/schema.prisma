@@ -329,10 +329,6 @@ model Settings {
   /// Default theme for users who have not chosen one.
   defaultTheme String @default("light") @map("default_theme")
 
-  /// Marketplace deep links on the dashboard and in C1.
-  seatGeekLinksEnabled Boolean @default(true) @map("seatgeek_links_enabled")
-  stubHubLinksEnabled  Boolean @default(true) @map("stubhub_links_enabled")
-
   /// Clockify workspace to read time entries from. The API key is NOT stored
   /// here — it lives in the CLOCKIFY_API_KEY environment variable so a database
   /// dump never contains a live credential.

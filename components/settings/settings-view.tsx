@@ -225,8 +225,6 @@ function GeneralSettings({ settings }: { settings: AppSettings }) {
   const [presenceTimeout, setPresenceTimeout] = React.useState(
     settings.presenceTimeoutMinutes,
   );
-  const [seatGeek, setSeatGeek] = React.useState(settings.seatGeekLinksEnabled);
-  const [stubHub, setStubHub] = React.useState(settings.stubHubLinksEnabled);
   const [pending, setPending] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string[]>>({});
 
@@ -251,8 +249,6 @@ function GeneralSettings({ settings }: { settings: AppSettings }) {
         timeZone,
         defaultTheme,
         presenceTimeoutMinutes: presenceTimeout,
-        seatGeekLinksEnabled: seatGeek,
-        stubHubLinksEnabled: stubHub,
       });
       toast.success("Settings saved.");
       router.refresh();
@@ -346,38 +342,6 @@ function GeneralSettings({ settings }: { settings: AppSettings }) {
           />
         </Field>
 
-        <div className="md:col-span-2">
-          <p className="mb-2 text-[12px] font-medium" style={{ color: "var(--ink-muted)" }}>
-            Marketplace links
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex cursor-pointer items-center gap-2 text-[12.5px]">
-              <input
-                type="checkbox"
-                checked={seatGeek}
-                onChange={(event) => setSeatGeek(event.target.checked)}
-                style={{ accentColor: "var(--accent)" }}
-                className="h-3.5 w-3.5"
-              />
-              Show SeatGeek search links
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-[12.5px]">
-              <input
-                type="checkbox"
-                checked={stubHub}
-                onChange={(event) => setStubHub(event.target.checked)}
-                style={{ accentColor: "var(--accent)" }}
-                className="h-3.5 w-3.5"
-              />
-              Show StubHub search links
-            </label>
-          </div>
-          <p className="mt-1.5 text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
-            These are search links built from the event&apos;s own teams and venue —
-            no API key and nothing to expire. They land on a results page rather
-            than the exact event.
-          </p>
-        </div>
       </div>
     </Card>
   );

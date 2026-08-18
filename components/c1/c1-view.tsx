@@ -24,6 +24,7 @@ import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
 import { useLiveRefresh } from "@/components/presence/use-live-refresh";
 import { FlagControl } from "@/components/flags/flag-control";
+import { NotesCell, type NoteView } from "@/components/notes/notes-cell";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
 import { downloadCsv, toCsv } from "@/lib/ui/csv";
@@ -40,7 +41,6 @@ import {
   UNASSIGNED_FILTER,
   UNASSIGNED_LABEL,
 } from "@/lib/domain/constants";
-import { TicketLinks } from "@/components/tickets/ticket-links";
 import { BulkDueDialog } from "./bulk-due-dialog";
 import type { C1RowView } from "@/lib/services/stages";
 import type { UserOption } from "@/lib/services/users";
@@ -55,6 +55,7 @@ const RANGE_LABELS: Record<DueRangeKey, string> = {
 
 export function C1View({
   rows: initialRows,
+  latestNotes: initialNotes,
   users,
   types,
   today,
@@ -63,9 +64,9 @@ export function C1View({
   currentUser,
   canAssign,
   canEditDueDates,
-  linkOptions,
 }: {
   rows: C1RowView[];
+  latestNotes: Record<string, NoteView>;
   users: UserOption[];
   types: Array<{ id: string; name: string }>;
   today: PlainDate;
@@ -82,12 +83,13 @@ export function C1View({
   canAssign: boolean;
   /** Administrators only — covers both the row picker and the bulk tool. */
   canEditDueDates: boolean;
-  linkOptions: { seatGeek: boolean; stubHub: boolean };
 }) {
   const router = useRouter();
   const toast = useToast();
 
   const [rows, setRows] = React.useState(initialRows);
+  const [notes, setNotes] = React.useState(initialNotes);
+  const [noteCounts, setNoteCounts] = React.useState<Record<string, number>>({});
   const [pending, setPending] = React.useState<ReadonlySet<string>>(new Set());
   const [search, setSearch] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState("");
@@ -107,7 +109,12 @@ export function C1View({
   React.useEffect(() => {
     setRows(initialRows);
     setSelected(new Set());
+    setNoteCounts({});
   }, [initialRows]);
+
+  React.useEffect(() => {
+    setNotes(initialNotes);
+  }, [initialNotes]);
 
   const presence = usePresence("C1", currentUser.id);
 
@@ -456,7 +463,7 @@ export function C1View({
                 <Th className="w-[11.5rem]">Away Team / Artist</Th>
                 <Th className="w-[11.5rem]">Home Team</Th>
                 <Th className="w-[10rem]">Venue</Th>
-                <Th className="w-[8.5rem]">Tickets</Th>
+                <Th className="w-[14rem]">Notes</Th>
                 <Th className="w-[8.5rem]">In progress</Th>
                 <Th className="w-[10rem]">Assigned</Th>
                 <Th className="w-[7rem]">Flag</Th>
@@ -631,8 +638,37 @@ export function C1View({
                     <Td>{row.homeTeam ?? <Muted>—</Muted>}</Td>
                     <Td className="text-[12px]">{row.venue ?? <Muted>—</Muted>}</Td>
 
+                    {/* The same cell the Dashboard uses. A note belongs to the
+                        event, so anything left before the event reached review
+                        is already here — this is the column that was missing,
+                        not the data. */}
                     <Td>
-                      <TicketLinks event={row} options={linkOptions} />
+                      <NotesCell
+                        eventId={row.eventId}
+                        noteCount={row.noteCount + (noteCounts[row.eventId] ?? 0)}
+                        latest={notes[row.eventId] ?? null}
+                        currentUserId={currentUser.id}
+                        isAdmin={currentUser.role === "ADMIN"}
+                        onCountChange={(eventId, delta) =>
+                          setNoteCounts((current) => ({
+                            ...current,
+                            [eventId]: (current[eventId] ?? 0) + delta,
+                          }))
+                        }
+                        onLatestChange={(eventId, note) =>
+                          setNotes((current) => {
+                            // Deleting the only note leaves no latest, and an
+                            // explicit null would render as an empty note
+                            // rather than as no note.
+                            if (!note) {
+                              const next = { ...current };
+                              delete next[eventId];
+                              return next;
+                            }
+                            return { ...current, [eventId]: note };
+                          })
+                        }
+                      />
                     </Td>
 
                     <Td>

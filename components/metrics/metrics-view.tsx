@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { useTheme } from "@/components/ui/theme";
+import { useRouter } from "next/navigation";
 import { BarChart, type BarDatum } from "@/components/charts/bar-chart";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { ActivityChart } from "@/components/charts/activity-chart";
@@ -34,7 +35,15 @@ import {
 import { roleLabel, type UserRoleValue } from "@/lib/domain/constants";
 import type { MetricsResult } from "@/lib/services/metrics";
 
-export function MetricsView({ initial }: { initial: MetricsResult }) {
+export function MetricsView({
+  initial,
+  scopedToSelf = false,
+}: {
+  initial: MetricsResult;
+  /** True for a regular user: these are their figures and nobody else's. */
+  scopedToSelf?: boolean;
+}) {
+  const router = useRouter();
   const toast = useToast();
   const { theme } = useTheme();
   const [metrics, setMetrics] = React.useState(initial);
@@ -73,6 +82,28 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
       cancelled = true;
     };
   }, [period, metrics.period, toast]);
+
+  /**
+   * The window the charts are describing, as query parameters.
+   *
+   * All-time has no lower bound, so `from` is simply omitted rather than
+   * invented — the receiving screen then applies no lower bound either, which
+   * is the same question.
+   */
+  function windowParams(): string {
+    const params = new URLSearchParams();
+    if (metrics.from) params.set("from", metrics.from);
+    params.set("to", metrics.to);
+    return params.toString();
+  }
+
+  function openCompletions(datum: BarDatum) {
+    router.push(`/dashboard?completedBy=${datum.key}&${windowParams()}`);
+  }
+
+  function openStages(datum: BarDatum) {
+    router.push(`/c1?stageDoneBy=${datum.key}&${windowParams()}`);
+  }
 
   const completionBars: BarDatum[] = metrics.users.map((user) => ({
     key: user.userId,
@@ -155,12 +186,14 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
     <div className="space-y-4" style={{ opacity: loading ? 0.65 : 1 }}>
       <Card>
         <PageHeader
-          title="User Metrics"
+          title={scopedToSelf ? "My Metrics" : "User Metrics"}
           subtitle={
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <StatPill label="events completed" value={metrics.totals.eventsCompleted} />
               <StatPill label="C1 stages done" value={metrics.totals.stagesDone} />
-              <StatPill label="people active" value={metrics.totals.activePeople} />
+              {scopedToSelf ? null : (
+                <StatPill label="people active" value={metrics.totals.activePeople} />
+              )}
               <StatPill label="per day" value={metrics.totals.perDay} />
               <span className="text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
                 {rangeLabel}
@@ -221,6 +254,8 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
           <BarChart
             data={completionBars}
             color={dark ? SEQUENTIAL_DARK : SEQUENTIAL_LIGHT}
+            onSelect={openCompletions}
+            selectHint="open these events"
           />
         </ChartCard>
 
@@ -242,6 +277,8 @@ export function MetricsView({ initial }: { initial: MetricsResult }) {
           <BarChart
             data={stageBars}
             color={dark ? SEQUENTIAL_DARK : SEQUENTIAL_LIGHT}
+            onSelect={openStages}
+            selectHint="open these events in C1"
           />
         </ChartCard>
 

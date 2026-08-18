@@ -345,8 +345,6 @@ export const updateSettingsSchema = z
     weekendAdjustment: z.boolean().optional(),
     presenceTimeoutMinutes: z.number().int().min(1).max(120).optional(),
     defaultTheme: z.enum(THEMES).optional(),
-    seatGeekLinksEnabled: z.boolean().optional(),
-    stubHubLinksEnabled: z.boolean().optional(),
     clockifyEnabled: z.boolean().optional(),
     // The workspace id is not a secret. The API key deliberately is not settable
     // here — it lives in CLOCKIFY_API_KEY so a database dump never carries a

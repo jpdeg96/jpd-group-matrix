@@ -43,6 +43,20 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-17-workflow-changes",
+    date: "Aug 17, 2026",
+    kind: "changed",
+    title: "Complete no longer sends an event to C1 on its own",
+    body: "Ticking Complete now records that the dashboard work is finished and nothing else — no review stages are created, so a mis-click costs nothing. A Send to C1 button sits to the right of TicketData, and a Ready for C1 chip counts everything ticked but not yet sent. Events already in C1 are unaffected.",
+  },
+  {
+    id: "2026-08-17-metrics-and-fixes",
+    date: "Aug 17, 2026",
+    kind: "changed",
+    title: "Your own metrics, clickable charts, and a few fixes",
+    body: "Metrics is open to everyone now — you see your own figures, managers see the team. Clicking a bar opens exactly those events. C1 has a Notes column, so notes and flags left on the Dashboard travel with the event. The marketplace links are gone. Rows no longer jump a line when you tick a box, and Clockify hours no longer inflate when somebody forgets to clock out.",
+  },
+  {
     id: "2026-08-16-phantom-calculator-rates",
     date: "Aug 16, 2026",
     kind: "added",

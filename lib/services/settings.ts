@@ -33,8 +33,6 @@ export interface AppSettings {
   weekendAdjustment: boolean;
   presenceTimeoutMinutes: number;
   defaultTheme: ThemeValue;
-  seatGeekLinksEnabled: boolean;
-  stubHubLinksEnabled: boolean;
   clockifyEnabled: boolean;
   clockifyWorkspaceId: string | null;
 
@@ -123,8 +121,6 @@ export async function getSettings(): Promise<AppSettings> {
     remittanceFromName: row.remittanceFromName,
     remittancePaymentMethod: row.remittancePaymentMethod,
     remittanceFooterNote: row.remittanceFooterNote,
-    seatGeekLinksEnabled: row.seatGeekLinksEnabled,
-    stubHubLinksEnabled: row.stubHubLinksEnabled,
     clockifyEnabled: row.clockifyEnabled,
     clockifyWorkspaceId: row.clockifyWorkspaceId,
     driveUploadEnabled: row.driveUploadEnabled,
@@ -171,8 +167,6 @@ export interface UpdateSettingsInput {
   weekendAdjustment?: boolean;
   presenceTimeoutMinutes?: number;
   defaultTheme?: ThemeValue;
-  seatGeekLinksEnabled?: boolean;
-  stubHubLinksEnabled?: boolean;
   clockifyEnabled?: boolean;
   clockifyWorkspaceId?: string | null;
 
@@ -281,12 +275,6 @@ export async function updateSettings(
         ? { presenceTimeoutMinutes: input.presenceTimeoutMinutes }
         : {}),
       ...(input.defaultTheme !== undefined ? { defaultTheme: input.defaultTheme } : {}),
-      ...(input.seatGeekLinksEnabled !== undefined
-        ? { seatGeekLinksEnabled: input.seatGeekLinksEnabled }
-        : {}),
-      ...(input.stubHubLinksEnabled !== undefined
-        ? { stubHubLinksEnabled: input.stubHubLinksEnabled }
-        : {}),
       ...(input.clockifyEnabled !== undefined
         ? { clockifyEnabled: input.clockifyEnabled }
         : {}),

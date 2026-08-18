@@ -29,7 +29,6 @@ import { useCompletionCelebration } from "./use-completion-celebration";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
 import { FlagControl } from "@/components/flags/flag-control";
-import { TicketLinks } from "@/components/tickets/ticket-links";
 import { CompletionHistory } from "./completion-history";
 import { EventFormDialog } from "./event-form-dialog";
 import { ImportDialog } from "./import-dialog";
@@ -64,7 +63,7 @@ type SortKey =
   | "assigneeName";
 
 /** Which extra rows to include beyond the default open-work view. */
-type Scope = "OPEN" | "COMPLETED" | "STALE" | "ALL";
+type Scope = "OPEN" | "COMPLETED" | "STALE" | "ALL" | "AWAITING_C1";
 
 /**
  * One outstanding checkbox, when the header counter for it has been clicked.
@@ -86,7 +85,7 @@ export function DashboardView({
   currentUser,
   canManage,
   isAdmin,
-  linkOptions,
+  drilledFrom,
 }: {
   events: DashboardEventView[];
   latestNotes: Record<string, NoteView>;
@@ -109,7 +108,12 @@ export function DashboardView({
   currentUser: { id: string; role: string };
   canManage: boolean;
   isAdmin: boolean;
-  linkOptions: { seatGeek: boolean; stubHub: boolean };
+  /** Set when arriving from a Metrics bar, so the screen can say so. */
+  drilledFrom: {
+    personName: string;
+    from: PlainDate | null;
+    to: PlainDate | null;
+  } | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -123,7 +127,7 @@ export function DashboardView({
   const [assigneeFilter, setAssigneeFilter] = React.useState("");
   const [mineOnly, setMineOnly] = React.useState(false);
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
-  const [scope, setScope] = React.useState<Scope>("OPEN");
+  const [scope, setScope] = React.useState<Scope>(drilledFrom ? "ALL" : "OPEN");
   const [pendingWork, setPendingWork] = React.useState<PendingWork | null>(null);
   const [sort, setSort] = React.useState<SortKey>("eventDate");
   const [direction, setDirection] = React.useState<"asc" | "desc">("asc");
@@ -176,6 +180,10 @@ export function DashboardView({
       if (scope === "STALE" && !isStaleCompletion(event.completedAt, now, stats.staleDays)) {
         return false;
       }
+      // Complete, but nobody has sent it for review yet.
+      if (scope === "AWAITING_C1" && !(event.completedAt && event.status === "DASHBOARD")) {
+        return false;
+      }
 
       if (typeFilter && event.eventTypeId !== typeFilter) return false;
       if (flaggedOnly && !event.flaggedAt) return false;
@@ -198,13 +206,23 @@ export function DashboardView({
 
     const factor = direction === "asc" ? 1 : -1;
 
+    // Every comparison falls through to the id. A comparator that returns 0
+    // leans on the incoming order being stable, and it is not: the rows are
+    // refetched whenever anybody ticks anything, and 563 of these events share
+    // an event date *and* a creation timestamp from the spreadsheet import. Two
+    // of them tying meant they could swap on any refresh, which is a row moving
+    // a line under the cursor.
     return [...filtered].sort((a, b) => {
       if (sort === "eventDate") {
-        return factor * comparePlainDates(a.eventDate, b.eventDate);
+        return (
+          factor * comparePlainDates(a.eventDate, b.eventDate) || a.id.localeCompare(b.id)
+        );
       }
       const left = (a[sort] ?? "").toLowerCase();
       const right = (b[sort] ?? "").toLowerCase();
-      if (left === right) return comparePlainDates(a.eventDate, b.eventDate);
+      if (left === right) {
+        return comparePlainDates(a.eventDate, b.eventDate) || a.id.localeCompare(b.id);
+      }
       return factor * (left < right ? -1 : 1);
     });
   }, [
@@ -254,13 +272,15 @@ export function DashboardView({
         current.map((event) => (event.id === eventId ? result.event : event)),
       );
 
-      if (result.promoted) toast.success("Sent to C1 staging.");
-      if (result.demoted) toast.success("Returned to open work.");
-      if (result.promoted || result.demoted) router.refresh();
+      if (result.demoted) {
+        toast.success("Returned to open work.");
+        router.refresh();
+      }
 
       // Only once the completion has actually landed. Celebrating off the
       // optimistic update would mean confetti for a write that then failed.
-      if (result.promoted) void celebration.check();
+      // Completion is the achievement; sending it to C1 is the step after.
+      if (field === "complete" && result.event.completedAt) void celebration.check();
     } catch (error) {
       if (previous) {
         const restore = previous;
@@ -305,6 +325,49 @@ export function DashboardView({
         "Unable to delete event.",
         error instanceof ApiRequestError ? error.message : undefined,
       );
+    }
+  }
+
+  /**
+   * Sends a completed event into C1.
+   *
+   * Deliberately not optimistic. This creates review stages and moves the row
+   * to another screen; showing it as done before the server agrees would mean
+   * unwinding a screenful of state when it fails.
+   */
+  async function sendToC1(event: DashboardEventView) {
+    const key = event.id + ":sendToC1";
+    if (pending.has(key)) return;
+
+    setPending((current) => new Set(current).add(key));
+    try {
+      const result = await api.post<{ event: DashboardEventView; stagesCreated: number }>(
+        "/api/events/" + event.id + "/send-to-c1",
+        {},
+      );
+
+      setEvents((current) =>
+        current.map((item) => (item.id === event.id ? result.event : item)),
+      );
+      toast.success(
+        "Sent to C1 — " +
+          result.stagesCreated +
+          " review stage" +
+          (result.stagesCreated === 1 ? "" : "s") +
+          " created.",
+      );
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        "Could not send to C1.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -386,6 +449,9 @@ export function DashboardView({
   }
 
   const openCount = events.filter((event) => event.status === "DASHBOARD").length;
+  const awaitingC1Count = events.filter(
+    (event) => event.completedAt !== null && event.status === "DASHBOARD",
+  ).length;
   const completedCount = events.length - openCount;
   const staleCount = events.filter((event) =>
     isStaleCompletion(event.completedAt, new Date(), stats.staleDays),
@@ -485,6 +551,31 @@ export function DashboardView({
         }
       />
 
+      {drilledFrom ? (
+        <div
+          className="flex flex-wrap items-center gap-2 border-b px-5 py-2 text-[12px]"
+          style={{ borderColor: "var(--line)", background: "var(--accent-soft)" }}
+        >
+          <span style={{ color: "var(--ink)" }}>
+            Showing the <strong>{visible.length}</strong> event
+            {visible.length === 1 ? "" : "s"} <strong>{drilledFrom.personName}</strong>{" "}
+            completed
+            {drilledFrom.from ? (
+              <>
+                {" "}between {formatPlainDateWithWeekday(drilledFrom.from)} and{" "}
+                {drilledFrom.to ? formatPlainDateWithWeekday(drilledFrom.to) : "today"}
+              </>
+            ) : drilledFrom.to ? (
+              <> up to {formatPlainDateWithWeekday(drilledFrom.to)}</>
+            ) : null}
+            .
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => router.push("/dashboard")}>
+            Show the whole board
+          </Button>
+        </div>
+      ) : null}
+
       <div
         className="flex flex-wrap items-center gap-2 border-b px-5 py-2"
         style={{ borderColor: "var(--line)" }}
@@ -509,6 +600,16 @@ export function DashboardView({
           onClick={() => setScope(scope === "ALL" ? "OPEN" : "ALL")}
           title="Open and completed work together. Completed rows stay dimmed so the two are still tellable apart."
         />
+        {awaitingC1Count > 0 ? (
+          <ShortcutChip
+            label="Ready for C1"
+            count={awaitingC1Count}
+            active={scope === "AWAITING_C1"}
+            activeBackground="var(--accent)"
+            onClick={() => setScope(scope === "AWAITING_C1" ? "OPEN" : "AWAITING_C1")}
+            title="Ticked Complete but not yet sent to C1"
+          />
+        ) : null}
         <ShortcutChip
           label="Completed"
           count={completedCount}
@@ -646,13 +747,13 @@ export function DashboardView({
                 <ResizableTh columnKey="away" label="Away Team / Artist" sortKey="awayTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" />
                 <ResizableTh columnKey="home" label="Home Team" sortKey="homeTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" />
                 <ResizableTh columnKey="venue" label="Venue" sortKey="venue" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" />
-                <ResizableTh columnKey="tickets" label="Tickets" columns={columns} className="w-[8.5rem]" />
                 <ResizableTh columnKey="progress" label="In progress" columns={columns} className="w-[8rem]" />
                 <ResizableTh columnKey="assigned" label="Assigned" sortKey="assigneeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" />
                 <ResizableTh columnKey="flag" label="Flag" columns={columns} className="w-[6.5rem]" />
-                <ResizableTh columnKey="complete" label="Complete" columns={columns} className="w-[8rem]" />
+                <ResizableTh columnKey="complete" label="Complete" columns={columns} className="w-[11rem]" />
                 <ResizableTh columnKey="seatgeek" label="SeatGeek" columns={columns} className="w-[7.5rem]" />
                 <ResizableTh columnKey="ticketdata" label="TicketData" columns={columns} className="w-[5.5rem]" />
+                <ResizableTh columnKey="sendtoc1" label="To C1" columns={columns} className="w-[7rem]" />
                 <ResizableTh columnKey="notes" label="Notes" columns={columns} className="w-[14rem]" />
                 {showAudited ? (
                   <ResizableTh columnKey="audited" label="Audited" columns={columns} className="w-[7.5rem]" />
@@ -729,10 +830,6 @@ export function DashboardView({
                     <Td className="text-[12px]">{event.venue ?? <Muted>—</Muted>}</Td>
 
                     <Td>
-                      <TicketLinks event={event} options={linkOptions} />
-                    </Td>
-
-                    <Td>
                       <InProgressButton
                         eventId={event.id}
                         working={working}
@@ -804,38 +901,50 @@ export function DashboardView({
                             }))
                           }
                         />
+                        {/* Two lines whichever state this is in, so ticking
+                            Complete does not grow the row and shunt everything
+                            below it down. The age sits beside the timestamp
+                            rather than under it — it is the same fact told two
+                            ways, and it buys back the line. */}
                         {event.completedAt ? (
                           <>
-                            <Stamp
-                              at={event.completedAt}
-                              byName={event.completedByName}
-                              byColor={event.completedByColor}
-                            />
-                            {sinceComplete !== null ? (
-                              <span
-                                className="text-[10px]"
-                                style={{
-                                  color: staleComplete ? "var(--warn)" : "var(--ink-subtle)",
-                                }}
-                                title={
-                                  staleComplete
-                                    ? `Completed ${sinceComplete} days ago — over the ${stats.staleDays}-day threshold`
-                                    : undefined
-                                }
-                              >
-                                {sinceComplete === 0 ? "today" : `${sinceComplete}d ago`}
-                                {staleComplete ? " ⚠" : ""}
-                              </span>
-                            ) : null}
+                            <span className="flex items-center gap-1.5 whitespace-nowrap">
+                              <Stamp
+                                at={event.completedAt}
+                                byName={event.completedByName}
+                                byColor={event.completedByColor}
+                              />
+                              {sinceComplete !== null ? (
+                                <span
+                                  className="text-[10px]"
+                                  style={{
+                                    color: staleComplete ? "var(--warn)" : "var(--ink-subtle)",
+                                  }}
+                                  title={
+                                    staleComplete
+                                      ? `Completed ${sinceComplete} days ago — over the ${stats.staleDays}-day threshold`
+                                      : undefined
+                                  }
+                                >
+                                  {sinceComplete === 0 ? "today" : `${sinceComplete}d ago`}
+                                  {staleComplete ? " ⚠" : ""}
+                                </span>
+                              ) : null}
+                            </span>
                             <CompletionHistory
                               eventId={event.id}
                               label={describeEvent(event)}
                             />
                           </>
                         ) : (
-                          <span className="text-[10px]" style={{ color: "var(--ink-subtle)" }}>
-                            sends to C1
-                          </span>
+                          <>
+                            <span className="text-[10px]" style={{ color: "var(--ink-subtle)" }}>
+                              not done yet
+                            </span>
+                            <span aria-hidden className="invisible text-[10px]">
+                              &nbsp;
+                            </span>
+                          </>
                         )}
                       </div>
                     </Td>
@@ -876,20 +985,53 @@ export function DashboardView({
                             }))
                           }
                         />
-                        {event.ticketDataChecked && event.ticketDataByColor ? (
+                        {/* Always rendered, hidden when there is nobody to
+                            show. TicketData records no timestamp, so it cannot
+                            use Stamp, but it needs the same reserved height —
+                            otherwise ticking it grows the row and pushes every
+                            row below it down. */}
+                        <span
+                          className={cn(
+                            "flex items-center gap-1",
+                            event.ticketDataChecked && event.ticketDataByColor
+                              ? ""
+                              : "invisible",
+                          )}
+                          title={event.ticketDataByName ?? undefined}
+                        >
                           <span
-                            className="flex items-center gap-1"
-                            title={event.ticketDataByName ?? undefined}
-                          >
-                            <span
-                              aria-hidden
-                              className="h-2 w-2 rounded-full"
-                              style={{ background: event.ticketDataByColor }}
-                            />
-                            <span className="sr-only">by {event.ticketDataByName}</span>
+                            aria-hidden
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ background: event.ticketDataByColor ?? "transparent" }}
+                          />
+                          <span className="text-[10.5px]" aria-hidden>
+                            &nbsp;
                           </span>
-                        ) : null}
+                          {event.ticketDataChecked && event.ticketDataByName ? (
+                            <span className="sr-only">by {event.ticketDataByName}</span>
+                          ) : null}
+                        </span>
                       </div>
+                    </Td>
+
+                    <Td>
+                      {event.status === "C1" || event.status === "COMPLETED" ? (
+                        <Badge tone="success">In C1</Badge>
+                      ) : event.completedAt ? (
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          loading={pending.has(event.id + ":sendToC1")}
+                          onClick={() => sendToC1(event)}
+                          title="Build this event's review checkpoints and move it to C1"
+                        >
+                          Send to C1
+                        </Button>
+                      ) : (
+                        <span className="text-[11px]" style={{ color: "var(--ink-subtle)" }}>
+                          tick Complete first
+                        </span>
+                      )}
                     </Td>
 
                     <Td>

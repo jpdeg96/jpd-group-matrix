@@ -18,7 +18,7 @@ import {
   ClockifyError,
   type ClockifyTimeEntry,
 } from "@/lib/clockify/client";
-import { parseIsoDurationSeconds, secondsSince } from "@/lib/clockify/duration";
+import { secondsSince, sumSecondsWithinWindow } from "@/lib/clockify/duration";
 import { getSettings } from "./settings";
 import { startOfWeek } from "@/lib/domain/review-schedule";
 import { todayInTimeZone, type PlainDate } from "@/lib/date/plain-date";
@@ -80,16 +80,12 @@ export function startOfBusinessDay(date: PlainDate, timeZone: string): Date {
   return utcMidnight;
 }
 
-function sumEntries(entries: ClockifyTimeEntry[], now: Date): number {
-  return entries.reduce((total, entry) => {
-    // A running entry has no duration yet; count the time so far so "today"
-    // does not jump when the timer stops.
-    if (entry.timeInterval.duration === null) {
-      return total + secondsSince(entry.timeInterval.start, now);
-    }
-    return total + parseIsoDurationSeconds(entry.timeInterval.duration);
-  }, 0);
-}
+/*
+ * `sumEntries` used to live here and added every entry's full duration, with a
+ * running one counted as elapsed-time-until-now. Both over-reported: see
+ * `secondsWithinWindow`, which every total now goes through. It is kept pure
+ * and in the duration module so the arithmetic is testable without a network.
+ */
 
 export async function getClockifySummary(
   userId: string,
@@ -135,13 +131,14 @@ export async function getClockifySummary(
         getRunningEntry(workspaceId, me.clockifyUserId),
       ]);
 
-      weekSeconds = sumEntries(weekEntries, now);
-      todaySeconds = sumEntries(
-        weekEntries.filter(
-          (entry) => new Date(entry.timeInterval.start).getTime() >= dayStart.getTime(),
-        ),
-        now,
-      );
+      // Both totals come from the same fetched entries, each clamped to its own
+      // window. Today is no longer "entries that started today, in full" —
+      // which credited a shift beginning at 23:00 entirely to the day it began
+      // on, and gave a shift that ran in from last night nothing at all.
+      const intervals = weekEntries.map((entry) => entry.timeInterval);
+
+      weekSeconds = sumSecondsWithinWindow(intervals, { from: weekStart, to: now }, now);
+      todaySeconds = sumSecondsWithinWindow(intervals, { from: dayStart, to: now }, now);
 
       if (running) {
         runningSeconds = secondsSince(running.timeInterval.start, now);
@@ -225,6 +222,7 @@ export interface WeeklyHoursResult {
 export async function getHoursByUser(
   start: Date,
   end: Date,
+  options: { onlyUserId?: string } = {},
 ): Promise<WeeklyHoursResult> {
   const settings = await getSettings();
 
@@ -243,7 +241,13 @@ export async function getHoursByUser(
   const workspaceId = settings.clockifyWorkspaceId;
 
   const linked = await prisma.user.findMany({
-    where: { active: true, clockifyUserId: { not: null } },
+    where: {
+      active: true,
+      clockifyUserId: { not: null },
+      // A person looking at their own metrics gets their own hours and no
+      // reason to infer anybody else's from the shape of the chart.
+      ...(options.onlyUserId ? { id: options.onlyUserId } : {}),
+    },
     select: {
       id: true,
       displayName: true,
@@ -254,7 +258,9 @@ export async function getHoursByUser(
     orderBy: { displayName: "asc" },
   });
 
-  const included = linked.filter((user) => !user.excludeFromTimeReport);
+  const included = options.onlyUserId
+    ? linked
+    : linked.filter((user) => !user.excludeFromTimeReport);
   const excludedNames = linked
     .filter((user) => user.excludeFromTimeReport)
     .map((user) => user.displayName);
@@ -273,7 +279,13 @@ export async function getHoursByUser(
             userId: user.id,
             displayName: user.displayName,
             color: user.color,
-            seconds: sumEntries(rows, now),
+            // Clamped to the range asked for, so a timer somebody left
+            // running does not credit the whole period since they forgot.
+            seconds: sumSecondsWithinWindow(
+              rows.map((row) => row.timeInterval),
+              { from: start, to: end },
+              now,
+            ),
           };
         } catch {
           // One unreachable member must not blank the whole chart; they simply
