@@ -14,7 +14,8 @@ import {
   calculateReviewDue,
   classifyDueUrgency,
   currentStage,
-  daysSince,
+  calendarDaysSince,
+  elapsedDaysSince,
   daysUntilDue,
   isStaleCompletion,
   STALE_COMPLETION_DAYS,
@@ -440,40 +441,63 @@ describe("due-date shortcuts", () => {
 describe("completion staleness", () => {
   const now = new Date("2026-08-09T12:00:00Z");
 
-  it("measures whole days since the completion instant", () => {
-    expect(daysSince("2026-08-09T11:00:00Z", now)).toBe(0);
-    expect(daysSince("2026-08-08T11:00:00Z", now)).toBe(1);
-    expect(daysSince("2026-07-10T12:00:00Z", now)).toBe(30);
+  it("measures elapsed 24-hour periods, which is not a day count", () => {
+    // Kept, and named for what it is. It was being used as a calendar-day
+    // count, which is how 23:00 yesterday came to read as "today" — see
+    // `calendarDaysSince` below for the one the screens use.
+    expect(elapsedDaysSince("2026-08-09T11:00:00Z", now)).toBe(0);
+    expect(elapsedDaysSince("2026-08-08T11:00:00Z", now)).toBe(1);
+    expect(elapsedDaysSince("2026-07-10T12:00:00Z", now)).toBe(30);
+  });
+
+  it("shows exactly the flaw that made it wrong for dates", () => {
+    // Finished at 23:00, read at 08:00 the next morning: nine hours elapsed,
+    // so zero periods — but it was unambiguously yesterday.
+    expect(elapsedDaysSince("2026-08-09T03:00:00Z", new Date("2026-08-09T12:00:00Z"))).toBe(0);
+    expect(calendarDaysSince(d("2026-08-08"), d("2026-08-09"))).toBe(1);
   });
 
   it("returns null when nothing was ever completed", () => {
-    expect(daysSince(null, now)).toBeNull();
-    expect(daysSince("nonsense", now)).toBeNull();
+    expect(elapsedDaysSince(null, now)).toBeNull();
+    expect(elapsedDaysSince("nonsense", now)).toBeNull();
   });
 
-  it("clamps a future timestamp to zero rather than going negative", () => {
-    expect(daysSince("2026-08-10T12:00:00Z", now)).toBe(0);
+  it("counts calendar days, so last night is yesterday and not today", () => {
+    // The bug this replaced measured elapsed 24-hour periods. Something
+    // finished at 23:00 and looked at nine hours later was zero periods old,
+    // so the dashboard called it "today" when it was plainly yesterday.
+    expect(calendarDaysSince(d("2026-08-09"), d("2026-08-10"))).toBe(1);
+    expect(calendarDaysSince(d("2026-08-10"), d("2026-08-10"))).toBe(0);
+    expect(calendarDaysSince(d("2026-07-11"), d("2026-08-10"))).toBe(30);
+  });
+
+  it("clamps a future date to zero rather than going negative", () => {
+    expect(calendarDaysSince(d("2026-08-12"), d("2026-08-10"))).toBe(0);
+  });
+
+  it("is null when there is no completion to measure", () => {
+    expect(calendarDaysSince(null, d("2026-08-10"))).toBeNull();
   });
 
   it("flags a completion at or past the threshold", () => {
-    expect(isStaleCompletion("2026-07-10T12:00:00Z", now)).toBe(true); // exactly 30
-    expect(isStaleCompletion("2026-06-01T12:00:00Z", now)).toBe(true);
+    expect(isStaleCompletion(d("2026-07-11"), d("2026-08-10"))).toBe(true); // exactly 30
+    expect(isStaleCompletion(d("2026-06-01"), d("2026-08-10"))).toBe(true);
   });
 
   it("does not flag a recent completion", () => {
-    expect(isStaleCompletion("2026-07-11T12:00:00Z", now)).toBe(false); // 29 days
-    expect(isStaleCompletion("2026-08-09T00:00:00Z", now)).toBe(false);
+    expect(isStaleCompletion(d("2026-07-12"), d("2026-08-10"))).toBe(false); // 29 days
+    expect(isStaleCompletion(d("2026-08-09"), d("2026-08-10"))).toBe(false);
   });
 
   it("never flags an event that was never completed", () => {
     // Uncompleted work is surfaced by other means; treating a null as "very
     // old" would flood the filter with everything that has not started.
-    expect(isStaleCompletion(null, now)).toBe(false);
+    expect(isStaleCompletion(null, d("2026-08-10"))).toBe(false);
   });
 
   it("honours a custom threshold", () => {
-    expect(isStaleCompletion("2026-08-02T12:00:00Z", now, 7)).toBe(true);
-    expect(isStaleCompletion("2026-08-04T12:00:00Z", now, 7)).toBe(false);
+    expect(isStaleCompletion(d("2026-08-03"), d("2026-08-10"), 7)).toBe(true);
+    expect(isStaleCompletion(d("2026-08-04"), d("2026-08-10"), 7)).toBe(false);
   });
 
   it("defaults to 30 days", () => {

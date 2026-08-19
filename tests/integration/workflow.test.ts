@@ -577,9 +577,11 @@ describe("promotion into C1", () => {
     it("records every tick and untick with attribution", async () => {
       const event = await makeEvent(30);
 
+      // Tick, untick, tick again. The event stays in C1 throughout — sending
+      // it happens once, and the completion is free to change afterwards.
       await completeAndSend(event.id, manager);
       await updateEvent(event.id, { complete: false }, manager);
-      await completeAndSend(event.id, worker);
+      await updateEvent(event.id, { complete: true }, worker);
 
       const history = await getCompletionHistory(event.id);
 
@@ -622,29 +624,56 @@ describe("promotion into C1", () => {
     });
   });
 
-  describe("returning an event to the dashboard", () => {
-    it("allows undo while no stage work has happened", async () => {
+  describe("unticking Complete", () => {
+    it("is allowed before the event has been sent, and costs nothing", async () => {
+      // The correction case: an event is ticked, then something about it turns
+      // out to need changing before it goes for review. This is what staleness
+      // exists to surface, so it has to be possible.
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { complete: true }, worker);
+
+      await updateEvent(event.id, { complete: false }, worker);
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.completedAt).toBeNull();
+      expect(stored.status).toBe("DASHBOARD");
+    });
+
+    it("leaves C1 untouched when the event has already been sent", async () => {
+      // The rule that matters. Complete records dashboard work; C1 membership
+      // is a separate fact. Unticking one must not disturb the other.
       const event = await makeEvent(30);
       await completeAndSend(event.id, manager);
 
-      const result = await updateEvent(event.id, { complete: false }, manager);
-      expect(result.demoted).toBe(true);
+      await updateEvent(event.id, { complete: false }, manager);
 
       const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
-      expect(stored.status).toBe("DASHBOARD");
       expect(stored.completedAt).toBeNull();
-      expect(await stagesFor(event.id)).toHaveLength(0);
+      expect(stored.status).toBe("C1");
+      expect(await stagesFor(event.id)).toHaveLength(5);
     });
 
-    it("refuses once a stage has been completed, rather than discarding the work", async () => {
+    it("keeps completed review work even when the completion is removed", async () => {
       const event = await makeEvent(30);
       await completeAndSend(event.id, manager);
       const rows = await listC1Rows();
       await updateStage(rows[0]!.stageId, { done: true }, worker);
 
-      await expect(
-        updateEvent(event.id, { complete: false }, manager),
-      ).rejects.toThrow(/completed review stage/i);
+      // This used to throw, to avoid discarding the stage. Nothing is
+      // discarded any more, so there is nothing to refuse.
+      await updateEvent(event.id, { complete: false }, manager);
+
+      const stages = await stagesFor(event.id);
+      expect(stages.filter((s) => s.status === "DONE")).toHaveLength(1);
+      expect(await listC1Rows()).toHaveLength(1);
+    });
+
+    it("still refuses to send an unticked event to C1", async () => {
+      // The one precondition that survives: sending requires a completion,
+      // even though unticking afterwards is allowed.
+      const event = await makeEvent(30);
+
+      await expect(sendToC1(event.id, manager)).rejects.toThrow(/Tick Complete first/);
     });
   });
 
@@ -840,12 +869,39 @@ describe("promotion into C1", () => {
       ).rejects.toThrow(/managers/i);
     });
 
-    it("lets a regular user release their own assignment", async () => {
+    it("stops a regular user releasing their own assignment", async () => {
+      // Claiming a row tells the team it is being dealt with. Quietly
+      // withdrawing that leaves the work looking untouched while everyone who
+      // saw the claim has moved on, so handing it back goes through a manager.
       const event = await makeEvent(30);
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
 
-      const released = await updateEvent(event.id, { assigneeId: null }, worker);
-      expect(released.event.assigneeId).toBeNull();
+      await expect(
+        updateEvent(event.id, { assigneeId: null }, worker),
+      ).rejects.toThrow(/cannot unassign yourself/i);
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.assigneeId).toBe(worker.effective.id);
+    });
+
+    it("still lets a regular user claim work nobody has taken", async () => {
+      const event = await makeEvent(30);
+
+      const claimed = await updateEvent(
+        event.id,
+        { assigneeId: worker.effective.id },
+        worker,
+      );
+      expect(claimed.event.assigneeId).toBe(worker.effective.id);
+    });
+
+    it("stops a regular user taking a row off somebody else", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+
+      await expect(
+        updateEvent(event.id, { assigneeId: worker.effective.id }, worker),
+      ).rejects.toThrow(/only claim work nobody has taken/i);
     });
 
     it("lets a manager reassign on someone's behalf", async () => {

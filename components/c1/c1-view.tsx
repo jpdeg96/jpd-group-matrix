@@ -686,7 +686,17 @@ export function C1View({
                         aria-label="Assigned"
                         value={row.assigneeId ?? ""}
                         pending={isPending(row.stageId, "assigneeId")}
-                        disabled={isPending(row.stageId, "assigneeId")}
+                        // A regular user may claim an unassigned row and
+                        // nothing else — not release it, not pass it on.
+                        disabled={
+                          isPending(row.stageId, "assigneeId") ||
+                          (!canAssign && row.assigneeId !== null)
+                        }
+                        title={
+                          !canAssign && row.assigneeId !== null
+                            ? "Only a manager can change who this is assigned to."
+                            : undefined
+                        }
                         onChange={(event) =>
                           mutate(row, "assigneeId", { assigneeId: event.target.value || null }, (item) => ({
                             ...item,
@@ -694,19 +704,17 @@ export function C1View({
                           }))
                         }
                       >
-                        <option value="">{UNASSIGNED_LABEL}</option>
+                        <option value="" disabled={!canAssign}>
+                          {UNASSIGNED_LABEL}
+                        </option>
                         {activeUsers.map((user) => (
                           <option
                             key={user.id}
                             value={user.id}
-                            // A base user may only claim unassigned work or drop
-                            // their own, so everyone else is greyed out rather
-                            // than offered and then rejected by the server.
-                            disabled={
-                              !canAssign &&
-                              user.id !== currentUser.id &&
-                              row.assigneeId !== null
-                            }
+                            // Claiming is the only move a regular user has, so
+                            // everyone else is greyed out rather than offered
+                            // and then rejected by the server.
+                            disabled={!canAssign && user.id !== currentUser.id}
                           >
                             {user.displayName}
                           </option>

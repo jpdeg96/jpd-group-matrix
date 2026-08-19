@@ -313,11 +313,37 @@ export const STALE_COMPLETION_DAYS = 30;
  * Whole days since an instant. Negative values clamp to 0 so clock skew between
  * the database and the renderer cannot produce a nonsensical age.
  */
-export function daysSince(iso: string | null, now: Date = new Date()): number | null {
+/**
+ * Whole 24-hour periods elapsed since an instant.
+ *
+ * NOT a calendar-day count, and must not be used as one. Something finished at
+ * 23:00 and looked at nine hours later is zero periods old but was plainly
+ * yesterday — which is exactly how the dashboard came to label yesterday's
+ * completions "today". Use `calendarDaysSince` for anything a person reads as
+ * a day.
+ *
+ * Kept for durations that genuinely are elapsed time rather than dates.
+ */
+export function elapsedDaysSince(iso: string | null, now: Date = new Date()): number | null {
   if (!iso) return null;
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return null;
   return Math.max(0, Math.floor((now.getTime() - then) / 86_400_000));
+}
+
+/**
+ * Calendar days between two business dates.
+ *
+ * Both are `PlainDate`, so the timezone question was settled server-side before
+ * either got here and this is plain date arithmetic. Yesterday is 1 however few
+ * hours ago it was, and today is 0 however many.
+ */
+export function calendarDaysSince(
+  completedOn: PlainDate | null,
+  today: PlainDate,
+): number | null {
+  if (!completedOn) return null;
+  return Math.max(0, differenceInDays(today, completedOn));
 }
 
 /**
@@ -329,11 +355,11 @@ export function daysSince(iso: string | null, now: Date = new Date()): number | 
  * clock.
  */
 export function isStaleCompletion(
-  completedAt: string | null,
-  now: Date = new Date(),
+  completedOn: PlainDate | null,
+  today: PlainDate,
   thresholdDays: number = STALE_COMPLETION_DAYS,
 ): boolean {
-  const age = daysSince(completedAt, now);
+  const age = calendarDaysSince(completedOn, today);
   return age !== null && age >= thresholdDays;
 }
 

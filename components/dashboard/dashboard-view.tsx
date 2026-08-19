@@ -38,7 +38,7 @@ import { downloadCsv, toCsv } from "@/lib/ui/csv";
 import { comparePlainDates, formatPlainDateWithWeekday, type PlainDate } from "@/lib/date/plain-date";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
 import {
-  daysSince,
+  calendarDaysSince,
   daysUntilEvent,
   isStaleCompletion,
   isStaleDashboardEvent,
@@ -177,7 +177,7 @@ export function DashboardView({
       const promoted = event.status === "C1" || event.status === "COMPLETED";
       if (scope === "OPEN" && promoted) return false;
       if (scope === "COMPLETED" && !promoted) return false;
-      if (scope === "STALE" && !isStaleCompletion(event.completedAt, now, stats.staleDays)) {
+      if (scope === "STALE" && !isStaleCompletion(event.completedOn, today, stats.staleDays)) {
         return false;
       }
       // Complete, but nobody has sent it for review yet.
@@ -388,7 +388,7 @@ export function DashboardView({
         event.assigneeName ?? UNASSIGNED_LABEL,
         event.completedAt ? "TRUE" : "FALSE",
         formatBusinessTimestamp(event.completedAt),
-        daysSince(event.completedAt) ?? "",
+        calendarDaysSince(event.completedOn, today) ?? "",
         event.seatGeekCheckedAt ? "TRUE" : "FALSE",
         formatBusinessTimestamp(event.seatGeekCheckedAt),
         event.ticketDataChecked ? "TRUE" : "FALSE",
@@ -454,7 +454,7 @@ export function DashboardView({
   ).length;
   const completedCount = events.length - openCount;
   const staleCount = events.filter((event) =>
-    isStaleCompletion(event.completedAt, new Date(), stats.staleDays),
+    isStaleCompletion(event.completedOn, today, stats.staleDays),
   ).length;
 
   return (
@@ -771,10 +771,10 @@ export function DashboardView({
                 const working = presence.isWorking(event.id);
                 const promoted = event.status === "C1" || event.status === "COMPLETED";
                 const days = daysUntilEvent(event.eventDate, today);
-                const sinceComplete = daysSince(event.completedAt);
+                const sinceComplete = calendarDaysSince(event.completedOn, today);
                 const staleComplete = isStaleCompletion(
-                  event.completedAt,
-                  new Date(),
+                  event.completedOn,
+                  today,
                   stats.staleDays,
                 );
                 const noteCount = event.noteCount + (noteCounts[event.id] ?? 0);
@@ -844,7 +844,17 @@ export function DashboardView({
                         aria-label="Assigned"
                         value={event.assigneeId ?? ""}
                         pending={isPending(event.id, "assigneeId")}
-                        disabled={isPending(event.id, "assigneeId")}
+                        // A regular user may claim an unassigned row and
+                        // nothing else — not release it, not pass it on.
+                        disabled={
+                          isPending(event.id, "assigneeId") ||
+                          (!canManage && event.assigneeId !== null)
+                        }
+                        title={
+                          !canManage && event.assigneeId !== null
+                            ? "Only a manager can change who this is assigned to."
+                            : undefined
+                        }
                         onChange={(e) =>
                           mutate(event.id, "assigneeId", { assigneeId: e.target.value || null }, (item) => ({
                             ...item,
@@ -852,16 +862,14 @@ export function DashboardView({
                           }))
                         }
                       >
-                        <option value="">{UNASSIGNED_LABEL}</option>
+                        <option value="" disabled={!canManage}>
+                          {UNASSIGNED_LABEL}
+                        </option>
                         {activeUsers.map((user) => (
                           <option
                             key={user.id}
                             value={user.id}
-                            disabled={
-                              !canManage &&
-                              user.id !== currentUser.id &&
-                              event.assigneeId !== null
-                            }
+                            disabled={!canManage && user.id !== currentUser.id}
                           >
                             {user.displayName}
                           </option>

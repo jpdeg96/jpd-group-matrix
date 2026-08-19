@@ -12,6 +12,7 @@ import {
   addDays,
   dbDateFromPlainDate,
   plainDateFromDbDate,
+  todayInTimeZone,
   toPlainDate,
   type PlainDate,
 } from "@/lib/date/plain-date";
@@ -68,6 +69,16 @@ export interface DashboardEventView {
   assigneeName: string | null;
   assigneeColor: string | null;
   completedAt: string | null;
+  /**
+   * The business calendar date the completion happened on.
+   *
+   * Carried separately from the instant because "was that yesterday?" is a
+   * calendar question, and answering it in the browser answers it in the
+   * browser's timezone against an elapsed-hours count — which is how a
+   * completion at 23:00 came to be labelled "today" the next morning.
+   * Resolved here, where the business zone is known.
+   */
+  completedOn: PlainDate | null;
   completedByName: string | null;
   seatGeekCheckedAt: string | null;
   seatGeekByName: string | null;
@@ -110,7 +121,7 @@ const dashboardInclude = {
 
 type EventWithRelations = Prisma.EventGetPayload<{ include: typeof dashboardInclude }>;
 
-function toView(event: EventWithRelations): DashboardEventView {
+function toView(event: EventWithRelations, timeZone: string): DashboardEventView {
   return {
     id: event.id,
     eventDate: plainDateFromDbDate(event.eventDate),
@@ -124,6 +135,7 @@ function toView(event: EventWithRelations): DashboardEventView {
     assigneeName: event.assignee?.displayName ?? null,
     assigneeColor: event.assignee?.color ?? null,
     completedAt: event.completedAt?.toISOString() ?? null,
+    completedOn: event.completedAt ? todayInTimeZone(timeZone, event.completedAt) : null,
     completedByName: event.completedBy?.displayName ?? null,
     seatGeekCheckedAt: event.seatGeekCheckedAt?.toISOString() ?? null,
     seatGeekByName: event.seatGeekBy?.displayName ?? null,
@@ -305,7 +317,8 @@ export async function listDashboardEvents(
     orderBy,
   });
 
-  return events.map(toView);
+  const zone = (await getSettings()).timeZone;
+  return events.map((event) => toView(event, zone));
 }
 
 export async function getEvent(eventId: string): Promise<DashboardEventView> {
@@ -314,7 +327,7 @@ export async function getEvent(eventId: string): Promise<DashboardEventView> {
     include: dashboardInclude,
   });
   if (!event) throw notFound("That event no longer exists.");
-  return toView(event);
+  return toView(event, (await getSettings()).timeZone);
 }
 
 export interface CreateEventInput {
@@ -365,7 +378,7 @@ export async function createEvent(input: CreateEventInput, actor: ActorContext) 
     },
   });
 
-  return toView(event);
+  return toView(event, (await getSettings()).timeZone);
 }
 
 export interface UpdateEventInput {
@@ -392,7 +405,7 @@ export async function updateEvent(
   eventId: string,
   input: UpdateEventInput,
   actor: ActorContext,
-): Promise<{ event: DashboardEventView; promoted: boolean; demoted: boolean }> {
+): Promise<{ event: DashboardEventView }> {
   const existing = await prisma.event.findUnique({
     where: { id: eventId },
     select: {
@@ -461,49 +474,37 @@ export async function updateEvent(
     }
   }
 
-  let promoted = false;
-  let demoted = false;
-
+  /*
+   * Complete is a plain record of dashboard work, and nothing else.
+   *
+   * It does not promote, and unticking it does not demote, delete a stage or
+   * move an event out of C1. The two were one act, then half an act; they are
+   * now genuinely independent, which is what lets somebody correct an event
+   * after ticking it — the case staleness exists to surface — without the
+   * correction costing them the review work already done on it.
+   *
+   * That independence is why `events_c1_requires_completion_check` had to go:
+   * it asserted that anything in C1 carries a completion, which stopped being
+   * true the moment unticking was allowed to leave C1 alone.
+   */
   if (input.complete !== undefined) {
     const isComplete = existing.completedAt !== null;
 
     if (input.complete && !isComplete) {
-      // Completion no longer promotes. Ticking Complete records that the work
-      // on the dashboard is finished; deciding the event is ready for review is
-      // a separate judgement, made with `sendToC1`.
-      //
-      // They used to be one act, which meant a mis-click built five review
-      // stages and moved the row to another screen. Splitting them costs one
-      // button and makes the destructive half deliberate.
       data.completedAt = new Date();
       data.completedById = actor.effective.id;
     } else if (!input.complete && isComplete) {
-      await assertSafeToDemote(eventId);
       data.completedAt = null;
       data.completedById = null;
-
-      // Unticking Complete on an event already sent to C1 pulls it back, since
-      // `assertSafeToDemote` has proved no review work would be lost.
-      if (existing.status === "C1") {
-        data.status = "DASHBOARD";
-        data.promotedAt = null;
-        demoted = true;
-      }
     }
   }
 
-  // The status flip and the stage rows must land together: an event must never
-  // be back on the dashboard with orphaned stages.
-  await prisma.$transaction(async (tx) => {
-    if (Object.keys(data).length > 0) {
-      await tx.event.update({ where: { id: eventId }, data });
-    }
-
-    if (demoted) {
-      // Safe because assertSafeToDemote proved no stage work exists.
-      await tx.reviewStage.deleteMany({ where: { eventId } });
-    }
-  });
+  // No transaction: this writes columns on a single row. It no longer moves an
+  // event between screens or deletes a stage, so there is nothing left that
+  // has to land together.
+  if (Object.keys(data).length > 0) {
+    await prisma.event.update({ where: { id: eventId }, data });
+  }
 
   // Moving an event date leaves its C1 stages pointing at the old schedule.
   // Nothing is rewritten — a deadline only moves when an administrator says so
@@ -552,7 +553,7 @@ export async function updateEvent(
     });
   }
 
-  return { event, promoted, demoted };
+  return { event };
 }
 
 /**

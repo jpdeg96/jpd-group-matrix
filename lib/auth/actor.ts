@@ -35,11 +35,17 @@ export interface ActorContext {
 }
 
 /**
- * Guards reassigning work to somebody else.
+ * Guards changing who a piece of work belongs to.
  *
- * Regular users may pick up unassigned work or drop their own, but only
- * managers and administrators may hand work to another person or take it off
- * them.
+ * A regular user may do exactly one thing: claim work that nobody has taken.
+ * They cannot hand it to somebody else, take it off somebody else, or put it
+ * back once they have claimed it.
+ *
+ * Releasing your own used to be allowed and is not any more. Claiming a row is
+ * a statement to the rest of the team that it is being dealt with, and being
+ * able to quietly withdraw that leaves the work looking untouched while
+ * everyone who saw the claim has moved on to something else. Handing it back is
+ * a decision for whoever is coordinating, so it goes through a manager.
  */
 export function assertCanAssign(
   actor: ActorContext,
@@ -49,13 +55,13 @@ export function assertCanAssign(
   if (canAssignOthers(actor.effective.role)) return;
 
   const self = actor.effective.id;
-  const claimingUnassigned = currentAssigneeId === null && nextAssigneeId === self;
-  const releasingOwn = currentAssigneeId === self && nextAssigneeId === null;
 
-  if (claimingUnassigned || releasingOwn) return;
+  if (currentAssigneeId === null && nextAssigneeId === self) return;
 
   throw forbidden(
-    "Only managers can assign work to other people. You can claim unassigned work or release your own.",
+    currentAssigneeId === self && nextAssigneeId === null
+      ? "You cannot unassign yourself. Ask a manager to reassign it if you cannot take it on."
+      : "You can only claim work nobody has taken. Only managers can assign it to somebody else.",
   );
 }
 

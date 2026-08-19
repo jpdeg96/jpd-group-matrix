@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-19-complete-and-assignment",
+    date: "Aug 19, 2026",
+    kind: "changed",
+    title: "Unticking Complete is safe, and assignment is claim-only",
+    body: "Unticking Complete no longer touches C1: the event stays where it is and every review checkpoint already ticked is kept. That means you can correct an event after ticking it, which is what the stale filter is there to catch. Sending to C1 still requires Complete to be ticked. Separately, you can now only claim work nobody has taken — releasing your own or taking a row off somebody else goes through a manager. And a completion late in the evening now reads as yesterday rather than today.",
+  },
+  {
     id: "2026-08-17-review-work-done",
     date: "Aug 17, 2026",
     kind: "fixed",
