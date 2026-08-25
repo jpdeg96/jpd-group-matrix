@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-25-start-and-flags",
+    date: "Aug 25, 2026",
+    kind: "changed",
+    title: "Start is for your own work, and flags open in full",
+    body: "Start now only works on events assigned to you — claim the row first and the button lights up. Managers can still start on anything, and you can always stop something you already started even if it has since been moved to somebody else. Separately, a flag is now clickable: it opens the whole reason, however long, along with who raised it and when. It used to be a hover tooltip, which cut off and was no use at all on a phone.",
+  },
+  {
     id: "2026-08-19-complete-and-assignment",
     date: "Aug 19, 2026",
     kind: "changed",

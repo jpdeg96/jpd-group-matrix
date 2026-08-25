@@ -11,7 +11,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "@/lib/errors";
-import type { ActorContext } from "@/lib/auth/actor";
+import { assertCanStartWork, type ActorContext } from "@/lib/auth/actor";
 import { getSettings } from "./settings";
 
 export type PresenceContextValue = "DASHBOARD" | "C1";
@@ -165,9 +165,11 @@ export async function startPresence(
 ): Promise<void> {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true },
+    select: { id: true, assigneeId: true },
   });
   if (!event) throw notFound("That event no longer exists.");
+
+  assertCanStartWork(actor, event.assigneeId);
 
   const userId = actor.effective.id;
   const now = new Date();

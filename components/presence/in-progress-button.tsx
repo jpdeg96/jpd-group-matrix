@@ -16,31 +16,47 @@ export function InProgressButton({
   working,
   others,
   pending,
+  canStart,
+  assigned,
   onToggle,
 }: {
   eventId: string;
   working: boolean;
   others: PresenceEntry[];
   pending: boolean;
+  /**
+   * Whether this user may *start* on the event. Stopping is never gated — a
+   * claim can outlive the assignment behind it, and its owner has to be able
+   * to clear it.
+   */
+  canStart: boolean;
+  /** Whether anybody holds the event, which is what makes the refusal useful. */
+  assigned: boolean;
   onToggle: (eventId: string, working: boolean) => void;
 }) {
   const someoneElse = others.length > 0;
+  const blocked = !working && !canStart;
 
   return (
     <div className="flex flex-col items-start gap-1">
       <button
         type="button"
-        disabled={pending}
+        disabled={pending || blocked}
         onClick={() => onToggle(eventId, !working)}
         aria-pressed={working}
         title={
           working
             ? "You are marked as working on this. Click to stop."
-            : "Mark yourself as working on this so your team can see it live."
+            : blocked
+              ? assigned
+                ? "You can only start on work assigned to you."
+                : "Assign this to yourself before starting on it."
+              : "Mark yourself as working on this so your team can see it live."
         }
         className={cn(
           "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition",
           "disabled:opacity-60",
+          blocked && "cursor-not-allowed",
         )}
         style={
           working

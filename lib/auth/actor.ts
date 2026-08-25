@@ -65,6 +65,33 @@ export function assertCanAssign(
   );
 }
 
+/**
+ * Guards marking yourself as working on an event.
+ *
+ * A regular user may only start on work assigned to them. "In progress" is a
+ * claim broadcast to the whole team, and one made on somebody else's row — or
+ * on a row nobody owns — tells everyone the work is being handled when nobody
+ * is accountable for finishing it. Claiming the row first is the honest
+ * version of the same act, and it is one click away.
+ *
+ * Only *starting* is guarded. Stopping is always allowed, because a claim can
+ * outlive the assignment that justified it — a manager reassigning a row must
+ * not strand its previous owner with an indicator they cannot clear.
+ */
+export function assertCanStartWork(
+  actor: ActorContext,
+  assigneeId: string | null,
+): void {
+  if (canAssignOthers(actor.effective.role)) return;
+  if (assigneeId === actor.effective.id) return;
+
+  throw forbidden(
+    assigneeId === null
+      ? "Assign this to yourself before starting on it."
+      : "You can only start on work assigned to you.",
+  );
+}
+
 /** Audit fields describing who really acted, and on whose behalf. */
 export function auditActor(actor: ActorContext): {
   userId: string;

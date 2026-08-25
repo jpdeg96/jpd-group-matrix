@@ -677,6 +677,8 @@ export function C1View({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === row.eventId}
+                        canStart={canAssign || row.assigneeId === currentUser.id}
+                        assigned={row.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
                     </Td>

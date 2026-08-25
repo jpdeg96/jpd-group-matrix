@@ -33,6 +33,7 @@ import {
   updateStage,
 } from "@/lib/services/stages";
 import { addNote, listNotes } from "@/lib/services/notes";
+import { listPresence, startPresence, stopPresence } from "@/lib/services/presence";
 import { archivePastEvents } from "@/lib/services/maintenance";
 import type { ActorContext } from "@/lib/auth/actor";
 
@@ -935,6 +936,67 @@ describe("promotion into C1", () => {
       await expect(
         updateEvent(event.id, { assigneeId: inactive.id }, manager),
       ).rejects.toThrow(/inactive/i);
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  describe("starting work", () => {
+    it("stops a regular user starting on unassigned work", async () => {
+      const event = await makeEvent(30);
+
+      await expect(
+        startPresence(event.id, "DASHBOARD", worker),
+      ).rejects.toThrow(/assign this to yourself/i);
+
+      expect(await prisma.presence.count({ where: { eventId: event.id } })).toBe(0);
+    });
+
+    it("stops a regular user starting on somebody else's work", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+
+      await expect(
+        startPresence(event.id, "DASHBOARD", worker),
+      ).rejects.toThrow(/assigned to you/i);
+    });
+
+    it("lets a regular user start once they hold the event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      await startPresence(event.id, "DASHBOARD", worker);
+
+      const live = await listPresence("DASHBOARD");
+      expect(live.get(event.id)?.map((entry) => entry.userId)).toEqual([
+        worker.effective.id,
+      ]);
+    });
+
+    it("lets a manager start on anything", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      await startPresence(event.id, "C1", manager);
+
+      const live = await listPresence("C1");
+      expect(live.get(event.id)?.map((entry) => entry.userId)).toEqual([
+        manager.effective.id,
+      ]);
+    });
+
+    it("lets somebody stop after the event is moved away from them", async () => {
+      // A claim outlives the assignment behind it. Gating the stop as well
+      // would strand its owner with an indicator they cannot clear.
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await startPresence(event.id, "DASHBOARD", worker);
+
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+      await stopPresence(event.id, "DASHBOARD", worker);
+
+      const live = await listPresence("DASHBOARD");
+      expect(live.get(event.id) ?? []).toEqual([]);
     });
   });
 

@@ -835,6 +835,8 @@ export function DashboardView({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === event.id}
+                        canStart={canManage || event.assigneeId === currentUser.id}
+                        assigned={event.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
                     </Td>

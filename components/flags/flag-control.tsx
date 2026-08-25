@@ -31,6 +31,7 @@ export function FlagControl({
 }) {
   const toast = useToast();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [detailOpen, setDetailOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
   const [pending, setPending] = React.useState(false);
 
@@ -54,17 +55,20 @@ export function FlagControl({
     }
   }
 
-  async function clear() {
+  /** Reports whether it worked, so the caller only dismisses on success. */
+  async function clear(): Promise<boolean> {
     setPending(true);
     try {
       await api.delete(`/api/events/${eventId}/flag`);
       toast.success("Flag cleared.");
       onChanged();
+      return true;
     } catch (error) {
       toast.error(
         "Could not clear the flag.",
         error instanceof ApiRequestError ? error.message : undefined,
       );
+      return false;
     } finally {
       setPending(false);
     }
@@ -73,30 +77,32 @@ export function FlagControl({
   if (flagged) {
     return (
       <div className="flex flex-col items-start gap-1">
-        <span
-          className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-semibold"
-          style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
-          title={
-            [
-              flaggedByName ? `Raised by ${flaggedByName}` : null,
-              flaggedAt ? formatBusinessTimestamp(flaggedAt) : null,
-              flagReason,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          }
+        {/* The chip and the reason open the full text together. A reason long
+            enough to matter is exactly the one the cell cannot show, and until
+            this was clickable the only way to read it was a hover tooltip —
+            unusable on a touch screen and gone the moment the pointer moves. */}
+        <button
+          type="button"
+          onClick={() => setDetailOpen(true)}
+          title="Open the flag"
+          className="w-full rounded border border-transparent px-1 py-0.5 text-left transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-raised)]"
         >
-          ⚑ Flagged
-        </span>
-
-        {flagReason ? (
           <span
-            className="line-clamp-2 text-[10.5px]"
-            style={{ color: "var(--ink-muted)" }}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-semibold"
+            style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
           >
-            {flagReason}
+            ⚑ Flagged
           </span>
-        ) : null}
+
+          {flagReason ? (
+            <span
+              className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-[10.5px]"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              {flagReason}
+            </span>
+          ) : null}
+        </button>
 
         {canResolve ? (
           <button
@@ -113,6 +119,56 @@ export function FlagControl({
             manager to clear
           </span>
         )}
+
+        <Dialog
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          title="Flagged for review"
+          description={
+            [
+              flaggedByName ? `Raised by ${flaggedByName}` : "Raised",
+              flaggedAt ? formatBusinessTimestamp(flaggedAt) : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          }
+          width="sm"
+          footer={
+            <>
+              <Button onClick={() => setDetailOpen(false)} disabled={pending}>
+                Close
+              </Button>
+              {canResolve ? (
+                <Button
+                  variant="danger"
+                  loading={pending}
+                  onClick={async () => {
+                    if (await clear()) setDetailOpen(false);
+                  }}
+                >
+                  Clear flag
+                </Button>
+              ) : null}
+            </>
+          }
+        >
+          {flagReason ? (
+            <p
+              className="max-h-[45vh] overflow-y-auto scrollbar-thin whitespace-pre-wrap break-words text-[12.5px]"
+            >
+              {flagReason}
+            </p>
+          ) : (
+            <p className="text-[12px]" style={{ color: "var(--ink-subtle)" }}>
+              No reason was given.
+            </p>
+          )}
+          {!canResolve ? (
+            <p className="mt-2 text-[11px]" style={{ color: "var(--ink-subtle)" }}>
+              Only a manager or administrator can clear this.
+            </p>
+          ) : null}
+        </Dialog>
       </div>
     );
   }
