@@ -25,6 +25,7 @@ import { NotesCell, type NoteView } from "@/components/notes/notes-cell";
 import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
 import { useLiveRefresh } from "@/components/presence/use-live-refresh";
+import { rowElementId, useFocusedRow } from "@/components/presence/use-focused-row";
 import { useCompletionCelebration } from "./use-completion-celebration";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
@@ -147,6 +148,22 @@ export function DashboardView({
   }, [initialNotes]);
 
   const presence = usePresence("DASHBOARD", currentUser.id);
+
+  // Arrived from a "who is working on what" link. Every filter has to come off
+  // first: the row being pointed at is frequently one this screen would hide —
+  // it defaults to open work, and somebody is just as likely to be mid-review
+  // on something already promoted.
+  const focusId = useFocusedRow();
+  React.useEffect(() => {
+    if (!focusId) return;
+    setScope("ALL");
+    setSearch("");
+    setTypeFilter("");
+    setAssigneeFilter("");
+    setMineOnly(false);
+    setFlaggedOnly(false);
+    setPendingWork(null);
+  }, [focusId]);
 
   // Somebody else ticked a box, promoted an event or deleted one — re-read.
   useLiveRefresh(presence.revision, pending.size > 0);
@@ -782,6 +799,7 @@ export function DashboardView({
                 return (
                   <tr
                     key={event.id}
+                    id={rowElementId(event.id)}
                     className={cn(
                       "border-t align-top transition-colors",
                       working || others.length > 0 ? "jpd-live-row" : "hover:brightness-[0.99]",

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { ThemeToggle } from "@/components/ui/theme";
 import { ClockifyWidget } from "./clockify-widget";
+import { TeamPresenceWidget } from "./team-presence-widget";
 import { Logo } from "./logo";
 import { UserChip } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
@@ -117,6 +118,9 @@ export function AppNav({
               {timeZoneLabel}
             </div>
           </div>
+
+          {/* Managers and above only — the endpoint enforces the same rule. */}
+          {canSeeManager ? <TeamPresenceWidget /> : null}
 
           <ClockifyWidget />
 

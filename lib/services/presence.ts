@@ -12,6 +12,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { notFound } from "@/lib/errors";
 import { assertCanStartWork, type ActorContext } from "@/lib/auth/actor";
+import { plainDateFromDbDate, type PlainDate } from "@/lib/date/plain-date";
 import { getSettings } from "./settings";
 
 export type PresenceContextValue = "DASHBOARD" | "C1";
@@ -139,6 +140,86 @@ export async function listMyPresence(actor: ActorContext): Promise<MyPresenceEnt
       startedAt: row.startedAt.toISOString(),
       minutesActive: Math.floor((now - row.startedAt.getTime()) / 60_000),
       label: `${emoji}${label}`,
+    };
+  });
+}
+
+export interface TeamPresenceEntry {
+  userId: string;
+  userName: string;
+  userColor: string;
+  eventId: string;
+  context: PresenceContextValue;
+  startedAt: string;
+  minutesActive: number;
+  /** The event, named the way it reads on the table it came from. */
+  label: string;
+  /** Shown under the label, so two fixtures with the same teams are separable. */
+  eventDate: PlainDate;
+  venue: string | null;
+}
+
+/**
+ * Everyone currently working, across both screens.
+ *
+ * Neither existing reader answers this. `listPresence` is scoped to one screen
+ * and keyed by event — it can say who is on the rows in front of you, but not
+ * that somebody is deep in C1 while you are looking at the Dashboard.
+ * `listMyPresence` is the right shape and the wrong person.
+ *
+ * Ordered oldest claim first, because the entry worth noticing is the one that
+ * has been open longest — a four-hour "in progress" is either a hard event or a
+ * forgotten one, and both are worth a manager's attention before a fresh claim
+ * is.
+ *
+ * Callers must check the role themselves; this is a plain read.
+ */
+export async function listTeamPresence(): Promise<TeamPresenceEntry[]> {
+  const cutoff = await staleBefore();
+
+  const rows = await prisma.presence.findMany({
+    where: { lastHeartbeat: { gte: cutoff } },
+    select: {
+      eventId: true,
+      context: true,
+      startedAt: true,
+      user: { select: { id: true, displayName: true, color: true } },
+      event: {
+        select: {
+          eventDate: true,
+          awayTeam: true,
+          homeTeam: true,
+          venue: true,
+          eventType: { select: { name: true, emoji: true } },
+        },
+      },
+    },
+    // Oldest first, then the row id, so two claims made in the same millisecond
+    // cannot swap places between polls and move a line under the cursor.
+    orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+  });
+
+  const now = Date.now();
+
+  return rows.map((row) => {
+    const teams = [row.event.awayTeam, row.event.homeTeam].filter(Boolean).join(" @ ");
+    const emoji = row.event.eventType.emoji ? `${row.event.eventType.emoji} ` : "";
+    const label = teams || row.event.venue || row.event.eventType.name;
+
+    return {
+      userId: row.user.id,
+      userName: row.user.displayName,
+      userColor: row.user.color,
+      eventId: row.eventId,
+      context: row.context as PresenceContextValue,
+      startedAt: row.startedAt.toISOString(),
+      minutesActive: Math.max(
+        0,
+        Math.floor((now - row.startedAt.getTime()) / 60_000),
+      ),
+      label: `${emoji}${label}`,
+      eventDate: plainDateFromDbDate(row.event.eventDate),
+      venue: teams ? row.event.venue : null,
     };
   });
 }

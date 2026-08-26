@@ -23,6 +23,7 @@ import { useToast } from "@/components/ui/toast";
 import { InProgressButton } from "@/components/presence/in-progress-button";
 import { usePresence } from "@/components/presence/use-presence";
 import { useLiveRefresh } from "@/components/presence/use-live-refresh";
+import { rowElementId, useFocusedRow } from "@/components/presence/use-focused-row";
 import { FlagControl } from "@/components/flags/flag-control";
 import { NotesCell, type NoteView } from "@/components/notes/notes-cell";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
@@ -120,6 +121,21 @@ export function C1View({
 
   // Somebody else ticked a stage, or an event arrived from the Dashboard.
   useLiveRefresh(presence.revision, pending.size > 0);
+
+  // Arrived from a "who is working on what" link. The range filter matters most
+  // here: C1 opens on today's reviews, and somebody working ahead on next
+  // week's would otherwise send you to a table that does not contain them.
+  const focusId = useFocusedRow();
+  React.useEffect(() => {
+    if (!focusId) return;
+    setRangeFilter(null);
+    setSearch("");
+    setTypeFilter("");
+    setAssigneeFilter("");
+    setStageFilter("");
+    setMineOnly(false);
+    setFlaggedOnly(false);
+  }, [focusId]);
 
   const activeUsers = React.useMemo(
     () => users.filter((user) => user.active),
@@ -484,6 +500,9 @@ export function C1View({
                 return (
                   <tr
                     key={row.stageId}
+                    // C1 shows one row per event, on its current stage, so the
+                    // event id is unique here even though the key is the stage.
+                    id={rowElementId(row.eventId)}
                     className={cn(
                       "border-t align-top transition-colors",
                       working || others.length > 0 ? "jpd-live-row" : "hover:brightness-[0.99]",

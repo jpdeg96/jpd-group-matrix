@@ -219,6 +219,28 @@
   animation: jpd-live-pulse 1.4s ease-in-out infinite;
 }
 
+/* The row somebody was sent to, from a "who is working on what" link.
+ *
+ * Deliberately unlike .jpd-live-row: that one means "somebody is on this",
+ * which is often *also* true of the row you were sent to, and two states
+ * wearing the same colour would be one state. This is a temporary "here it is"
+ * that fades on its own, so nothing has to be dismissed.
+ */
+@keyframes jpd-focus-fade {
+  0%,
+  70% {
+    background-color: color-mix(in oklch, var(--accent) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.jpd-focus-row {
+  animation: jpd-focus-fade 4s ease-out forwards;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 /* Respect users who have asked for less motion: keep the color and the inset
    rule, drop the movement entirely. */
 @media (prefers-reduced-motion: reduce) {
@@ -230,5 +252,12 @@
 
   .jpd-live-dot {
     animation: none;
+  }
+
+  /* No fade, but the highlight still disappears: the hook removes the class
+     after four seconds either way, so nothing is left needing dismissal. */
+  .jpd-focus-row {
+    animation: none;
+    background-color: color-mix(in oklch, var(--accent) 22%, transparent);
   }
 }

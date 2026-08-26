@@ -33,7 +33,12 @@ import {
   updateStage,
 } from "@/lib/services/stages";
 import { addNote, listNotes } from "@/lib/services/notes";
-import { listPresence, startPresence, stopPresence } from "@/lib/services/presence";
+import {
+  listPresence,
+  listTeamPresence,
+  startPresence,
+  stopPresence,
+} from "@/lib/services/presence";
 import { archivePastEvents } from "@/lib/services/maintenance";
 import type { ActorContext } from "@/lib/auth/actor";
 
@@ -983,6 +988,45 @@ describe("promotion into C1", () => {
       expect(live.get(event.id)?.map((entry) => entry.userId)).toEqual([
         manager.effective.id,
       ]);
+    });
+
+    it("shows a manager everyone's claims, across both screens, oldest first", async () => {
+      const older = await makeEvent(30);
+      const newer = await makeEvent(31);
+      await updateEvent(older.id, { assigneeId: worker.effective.id }, worker);
+
+      await startPresence(older.id, "DASHBOARD", worker);
+      // Ensure a distinct startedAt rather than relying on clock resolution.
+      await prisma.presence.updateMany({
+        where: { eventId: older.id },
+        data: { startedAt: new Date(Date.now() - 90 * 60_000) },
+      });
+      await startPresence(newer.id, "C1", manager);
+
+      const team = await listTeamPresence();
+
+      expect(team.map((entry) => entry.eventId)).toEqual([older.id, newer.id]);
+      expect(team[0]?.userName).toBe(worker.effective.displayName);
+      expect(team[0]?.context).toBe("DASHBOARD");
+      expect(team[0]?.minutesActive).toBe(90);
+      expect(team[1]?.context).toBe("C1");
+      // The event has to be identifiable without opening it.
+      expect(team[0]?.label.length).toBeGreaterThan(0);
+      expect(team[0]?.eventDate).toBe(older.eventDate);
+    });
+
+    it("leaves an expired claim out of the team view", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await startPresence(event.id, "DASHBOARD", worker);
+
+      // Stopped beating well beyond any plausible timeout.
+      await prisma.presence.updateMany({
+        where: { eventId: event.id },
+        data: { lastHeartbeat: new Date(Date.now() - 24 * 60 * 60_000) },
+      });
+
+      expect(await listTeamPresence()).toEqual([]);
     });
 
     it("lets somebody stop after the event is moved away from them", async () => {
