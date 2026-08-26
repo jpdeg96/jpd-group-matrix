@@ -132,6 +132,43 @@ export const dashboardQuerySchema = z.object({
   direction: z.enum(["asc", "desc"]).optional(),
 });
 
+/**
+ * A bulk change to a set of events.
+ *
+ * Every editable field is optional and absence means "leave alone", exactly as
+ * on the single-row patch — a bulk edit that posted every field would blank the
+ * ones nobody filled in. The coherence rules (delete is exclusive, at least one
+ * change) live in the service rather than here, because they are the same rules
+ * whichever way the service is reached.
+ */
+export const bulkEventSchema = z.object({
+  eventIds: z.array(uuidSchema).min(1, "Select at least one event first."),
+  eventTypeId: uuidSchema.optional(),
+  awayTeam: optionalText(160),
+  homeTeam: optionalText(160),
+  venue: optionalText(200),
+  assigneeId: optionalUuid,
+  flag: z
+    .discriminatedUnion("action", [
+      z.object({
+        action: z.literal("RAISE"),
+        reason: z
+          .string()
+          .trim()
+          .max(500, "Keep the reason under 500 characters.")
+          .transform((value) => (value.length === 0 ? null : value))
+          .nullable()
+          .default(null),
+      }),
+      z.object({ action: z.literal("CLEAR") }),
+    ])
+    .optional(),
+  note: z.string().trim().max(2_000).optional(),
+  remove: z.boolean().optional(),
+});
+
+export type BulkEventInput = z.infer<typeof bulkEventSchema>;
+
 /** Raising a flag. The reason is optional — sometimes "look at this" is enough. */
 export const flagEventSchema = z.object({
   reason: z

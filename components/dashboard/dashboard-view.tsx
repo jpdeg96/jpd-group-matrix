@@ -15,6 +15,7 @@ import {
   Select,
   StatPill,
   Td,
+  Th,
   UserChip,
   LegacyBadge,
 } from "@/components/ui/primitives";
@@ -33,6 +34,11 @@ import { FlagControl } from "@/components/flags/flag-control";
 import { CompletionHistory } from "./completion-history";
 import { EventFormDialog } from "./event-form-dialog";
 import { ImportDialog } from "./import-dialog";
+import {
+  BulkActionsDialog,
+  BulkSelectionBar,
+  type BulkResult,
+} from "./bulk-actions-dialog";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
 import { downloadCsv, toCsv } from "@/lib/ui/csv";
@@ -135,6 +141,14 @@ export function DashboardView({
   const [editing, setEditing] = React.useState<DashboardEventView | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
+
+  // Selection mode is off by default and the checkbox column only exists while
+  // it is on. A permanently present checkbox on every row is a permanently
+  // present way to tick the wrong one, on a screen whose actual job is ticking
+  // boxes that mean something else entirely.
+  const [selecting, setSelecting] = React.useState(false);
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = React.useState(false);
 
   const columns = useColumnWidths("dashboard");
 
@@ -438,6 +452,42 @@ export function DashboardView({
   const showOpenWork = clearFilters;
 
   /*
+   * Selection survives filtering, deliberately.
+   *
+   * Building a set across two or three different filters is a normal way to
+   * work — every Yankees fixture, then everything at that one venue — and
+   * dropping the selection when the filter changes would make that impossible.
+   * The count in the bar is the whole selection, and the review screen names
+   * every event in it, so nothing can be applied to a row the person has
+   * forgotten is still ticked.
+   */
+  const selectedVisibleCount = React.useMemo(
+    () => visible.reduce((count, event) => count + (selected.has(event.id) ? 1 : 0), 0),
+    [visible, selected],
+  );
+
+  function toggleSelected(eventId: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  }
+
+  /** Select-all covers what is on screen, never the whole unfiltered board. */
+  function toggleAllVisible(select: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const event of visible) {
+        if (select) next.add(event.id);
+        else next.delete(event.id);
+      }
+      return next;
+    });
+  }
+
+  /*
    * Every header counter is counted over open work, so each of these puts the
    * scope back first — clicking "unassigned" while looking at Completed would
    * otherwise land on a number with no relation to the one just pressed.
@@ -556,6 +606,18 @@ export function DashboardView({
             </Button>
             {canManage ? (
               <>
+                <Button
+                  size="sm"
+                  variant={selecting ? "primary" : "secondary"}
+                  aria-pressed={selecting}
+                  onClick={() => {
+                    setSelecting((on) => !on);
+                    setSelected(new Set());
+                  }}
+                  title="Pick several events and change them together"
+                >
+                  {selecting ? "Done selecting" : "Bulk actions"}
+                </Button>
                 <Button size="sm" onClick={() => setImporting(true)}>
                   Bulk import
                 </Button>
@@ -759,6 +821,25 @@ export function DashboardView({
               style={{ background: "var(--surface)", boxShadow: "0 1px 0 var(--line)" }}
             >
               <tr>
+                {selecting ? (
+                  <Th className="w-[2.5rem]">
+                    <input
+                      type="checkbox"
+                      aria-label="Select every event shown"
+                      title="Select every event shown"
+                      // Indeterminate when the selection is a strict subset, so
+                      // "some are selected" never looks like "none are".
+                      ref={(node) => {
+                        if (node) {
+                          node.indeterminate =
+                            selectedVisibleCount > 0 && selectedVisibleCount < visible.length;
+                        }
+                      }}
+                      checked={visible.length > 0 && selectedVisibleCount === visible.length}
+                      onChange={(event) => toggleAllVisible(event.target.checked)}
+                    />
+                  </Th>
+                ) : null}
                 <ResizableTh columnKey="date" label="Date" sortKey="eventDate" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[9.5rem]" />
                 <ResizableTh columnKey="type" label="Type" sortKey="eventTypeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[7rem]" />
                 <ResizableTh columnKey="away" label="Away Team / Artist" sortKey="awayTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" />
@@ -812,6 +893,17 @@ export function DashboardView({
                       opacity: promoted && scope !== "COMPLETED" ? 0.72 : 1,
                     }}
                   >
+                    {selecting ? (
+                      <Td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${event.awayTeam ?? event.eventTypeName}`}
+                          checked={selected.has(event.id)}
+                          onChange={() => toggleSelected(event.id)}
+                        />
+                      </Td>
+                    ) : null}
+
                     <Td>
                       <div className="flex flex-col gap-1">
                         <span className="font-medium">
@@ -1163,10 +1255,49 @@ export function DashboardView({
               router.refresh();
             }}
           />
+
+          <BulkSelectionBar
+            count={selected.size}
+            onOpen={() => setBulkOpen(true)}
+            onClear={() => setSelected(new Set())}
+          />
+
+          {bulkOpen ? (
+            <BulkActionsDialog
+              eventIds={[...selected]}
+              types={types}
+              users={users}
+              onClose={() => setBulkOpen(false)}
+              onApplied={(result) => {
+                setBulkOpen(false);
+                setSelected(new Set());
+                setSelecting(false);
+                toast.success(describeBulkResult(result));
+                router.refresh();
+              }}
+            />
+          ) : null}
         </>
       ) : null}
     </Card>
   );
+}
+
+/**
+ * What actually happened, in one line.
+ *
+ * Every outcome is named, including the ones that did nothing. "42 events
+ * changed" against 45 selected is the report that makes people stop trusting a
+ * bulk action, because the missing three are unaccounted for.
+ */
+function describeBulkResult(result: BulkResult): string {
+  const parts: string[] = [];
+  if (result.updated > 0) parts.push(`${result.updated} changed`);
+  if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
+  if (result.cancelled > 0) parts.push(`${result.cancelled} cancelled`);
+  if (result.unchanged > 0) parts.push(`${result.unchanged} already correct`);
+  if (result.skipped > 0) parts.push(`${result.skipped} skipped`);
+  return parts.length > 0 ? `${parts.join(", ")}.` : "Nothing changed.";
 }
 
 function ShortcutChip({

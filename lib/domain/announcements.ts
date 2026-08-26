@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-26-bulk-actions",
+    date: "Aug 26, 2026",
+    kind: "added",
+    title: "Change many events at once",
+    body: "Bulk actions on the Dashboard puts a checkbox on every row. Tick the ones you want — the selection survives changing the filters, so you can gather rows from several searches — and a Select Action(s) button appears in the bottom right. From there you can set the type, away team or artist, home team, venue or assignee, raise or clear a flag, add a note to all of them, or delete them. Every change is opt-in: tick the field to change it and everything else is left alone. You then get a review screen listing each event and exactly what will happen to it, including any that will be skipped and why, before anything is written. Deleting is separate and cannot be combined with an edit; anything with completed review work is cancelled rather than deleted so the record is kept. Managers and administrators.",
+  },
+  {
     id: "2026-08-25-team-presence",
     date: "Aug 25, 2026",
     kind: "added",

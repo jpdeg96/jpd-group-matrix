@@ -33,6 +33,7 @@ import {
   updateStage,
 } from "@/lib/services/stages";
 import { addNote, listNotes } from "@/lib/services/notes";
+import { applyBulkUpdate, planBulkUpdate } from "@/lib/services/bulk-events";
 import {
   listPresence,
   listTeamPresence,
@@ -941,6 +942,272 @@ describe("promotion into C1", () => {
       await expect(
         updateEvent(event.id, { assigneeId: inactive.id }, manager),
       ).rejects.toThrow(/inactive/i);
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  describe("bulk changes", () => {
+    it("refuses a regular user outright", async () => {
+      const event = await makeEvent(30);
+      await expect(
+        planBulkUpdate({ eventIds: [event.id], venue: "New" }, worker),
+      ).rejects.toThrow(/managers and administrators/i);
+      await expect(
+        applyBulkUpdate({ eventIds: [event.id], venue: "New" }, worker),
+      ).rejects.toThrow(/managers and administrators/i);
+    });
+
+    it("plans without writing anything", async () => {
+      const event = await makeEvent(30);
+
+      const plan = await planBulkUpdate(
+        { eventIds: [event.id], venue: "Wembley" },
+        manager,
+      );
+
+      expect(plan.counts.update).toBe(1);
+      expect(plan.events[0]?.changes).toEqual([
+        { field: "Venue", from: "V", to: "Wembley" },
+      ]);
+      // A replacement, not an addition — the review screen strikes the old
+      // value through only for these.
+      expect(plan.events[0]?.changes[0]?.kind).toBeUndefined();
+
+      // The whole point of a preview.
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.venue).toBe("V");
+    });
+
+    it("reports a row that already matches rather than counting it as changed", async () => {
+      const event = await makeEvent(30);
+
+      const plan = await planBulkUpdate({ eventIds: [event.id], venue: "V" }, manager);
+
+      expect(plan.counts.update).toBe(0);
+      expect(plan.counts.unchanged).toBe(1);
+      expect(plan.events[0]?.outcome).toBe("UNCHANGED");
+    });
+
+    it("applies several fields at once, and only to the selected events", async () => {
+      const target = await makeEvent(30);
+      const bystander = await makeEvent(31);
+
+      const result = await applyBulkUpdate(
+        {
+          eventIds: [target.id],
+          venue: "Wembley",
+          homeTeam: "Arsenal",
+          assigneeId: worker.effective.id,
+        },
+        manager,
+      );
+
+      expect(result.updated).toBe(1);
+
+      const changed = await prisma.event.findUniqueOrThrow({ where: { id: target.id } });
+      expect(changed.venue).toBe("Wembley");
+      expect(changed.homeTeam).toBe("Arsenal");
+      expect(changed.assigneeId).toBe(worker.effective.id);
+
+      const untouched = await prisma.event.findUniqueOrThrow({
+        where: { id: bystander.id },
+      });
+      expect(untouched.venue).toBe("V");
+      expect(untouched.assigneeId).toBeNull();
+    });
+
+    it("clears a text field when the value is empty", async () => {
+      const event = await makeEvent(30);
+
+      const plan = await planBulkUpdate({ eventIds: [event.id], venue: null }, manager);
+      expect(plan.events[0]?.changes).toEqual([{ field: "Venue", from: "V", to: null }]);
+
+      await applyBulkUpdate({ eventIds: [event.id], venue: null }, manager);
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.venue).toBeNull();
+    });
+
+    it("shows an added note as gained rather than replacing an empty one", async () => {
+      const event = await makeEvent(30);
+      await addNote(event.id, "An existing note", worker);
+
+      const plan = await planBulkUpdate(
+        { eventIds: [event.id], note: "And another" },
+        manager,
+      );
+
+      expect(plan.events[0]?.changes).toEqual([
+        { field: "Note", from: null, to: "And another", kind: "ADD" },
+      ]);
+
+      // And the existing note is genuinely untouched.
+      await applyBulkUpdate({ eventIds: [event.id], note: "And another" }, manager);
+      const notes = await listNotes(event.id);
+      expect(notes.map((note) => note.body).sort()).toEqual([
+        "An existing note",
+        "And another",
+      ]);
+    });
+
+    it("adds one note per selected event", async () => {
+      const first = await makeEvent(30);
+      const second = await makeEvent(31);
+
+      await applyBulkUpdate(
+        { eventIds: [first.id, second.id], note: "Checked against the source file." },
+        manager,
+      );
+
+      for (const event of [first, second]) {
+        const notes = await listNotes(event.id);
+        expect(notes.map((note) => note.body)).toEqual([
+          "Checked against the source file.",
+        ]);
+      }
+    });
+
+    it("keeps the original flaggedAt when re-flagging, and updates the reason", async () => {
+      const event = await makeEvent(30);
+      await flagEvent(event.id, "First look", worker);
+      const first = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+
+      await applyBulkUpdate(
+        { eventIds: [event.id], flag: { action: "RAISE", reason: "Second look" } },
+        manager,
+      );
+
+      const after = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(after.flagReason).toBe("Second look");
+      // Re-flagging must not reset how long it has been waiting.
+      expect(after.flaggedAt?.getTime()).toBe(first.flaggedAt?.getTime());
+    });
+
+    it("stamps flaggedAt on a row that was not already flagged", async () => {
+      const clean = await makeEvent(30);
+      const flagged = await makeEvent(31);
+      await flagEvent(flagged.id, "Old", worker);
+
+      await applyBulkUpdate(
+        { eventIds: [clean.id, flagged.id], flag: { action: "RAISE", reason: "Both" } },
+        manager,
+      );
+
+      const after = await prisma.event.findUniqueOrThrow({ where: { id: clean.id } });
+      expect(after.flaggedAt).not.toBeNull();
+      expect(after.flagReason).toBe("Both");
+    });
+
+    it("clears flags in bulk", async () => {
+      const event = await makeEvent(30);
+      await flagEvent(event.id, "Look at this", worker);
+
+      await applyBulkUpdate({ eventIds: [event.id], flag: { action: "CLEAR" } }, manager);
+
+      const after = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(after.flaggedAt).toBeNull();
+      expect(after.flagReason).toBeNull();
+      expect(after.flagResolvedAt).not.toBeNull();
+    });
+
+    it("cancels an event with completed review work instead of deleting it", async () => {
+      const plain = await makeEvent(30);
+      const reviewed = await makeEvent(31);
+      await completeAndSend(reviewed.id, manager);
+      const stages = await stagesFor(reviewed.id);
+      await updateStage(stages[0]!.id, { done: true }, manager);
+
+      const plan = await planBulkUpdate(
+        { eventIds: [plain.id, reviewed.id], remove: true },
+        manager,
+      );
+      expect(plan.counts.delete).toBe(1);
+      expect(plan.counts.cancel).toBe(1);
+      expect(plan.warnings.some((warning) => /cancelled rather than deleted/i.test(warning)))
+        .toBe(true);
+
+      const result = await applyBulkUpdate(
+        { eventIds: [plain.id, reviewed.id], remove: true },
+        manager,
+      );
+      expect(result).toMatchObject({ deleted: 1, cancelled: 1 });
+
+      expect(await prisma.event.findUnique({ where: { id: plain.id } })).toBeNull();
+      const kept = await prisma.event.findUniqueOrThrow({ where: { id: reviewed.id } });
+      expect(kept.status).toBe("CANCELLED");
+    });
+
+    it("refuses to delete and edit in one action", async () => {
+      const event = await makeEvent(30);
+      await expect(
+        applyBulkUpdate({ eventIds: [event.id], remove: true, venue: "X" }, manager),
+      ).rejects.toThrow(/cannot be combined/i);
+    });
+
+    it("skips cancelled events rather than editing them", async () => {
+      const event = await makeEvent(30);
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { status: "CANCELLED", cancelledAt: new Date() },
+      });
+
+      const plan = await planBulkUpdate({ eventIds: [event.id], venue: "X" }, manager);
+      expect(plan.counts.skip).toBe(1);
+      expect(plan.events[0]?.reason).toMatch(/cancelled/i);
+
+      await expect(
+        applyBulkUpdate({ eventIds: [event.id], venue: "X" }, manager),
+      ).rejects.toThrow(/nothing to apply/i);
+    });
+
+    it("refuses an inactive assignee before touching anything", async () => {
+      const gone = await prisma.user.create({
+        data: { email: "bulk-gone@test.local", displayName: "Gone", role: "USER", active: false, color: "#64748b" },
+      });
+      const event = await makeEvent(30);
+
+      await expect(
+        applyBulkUpdate({ eventIds: [event.id], assigneeId: gone.id }, manager),
+      ).rejects.toThrow(/inactive/i);
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.assigneeId).toBeNull();
+    });
+
+    it("refuses an empty selection and an empty change", async () => {
+      const event = await makeEvent(30);
+      await expect(planBulkUpdate({ eventIds: [] }, manager)).rejects.toThrow(
+        /at least one event/i,
+      );
+      await expect(planBulkUpdate({ eventIds: [event.id] }, manager)).rejects.toThrow(
+        /at least one change/i,
+      );
+    });
+
+    it("reports events somebody else deleted while they were being selected", async () => {
+      const kept = await makeEvent(30);
+      const vanished = await makeEvent(31);
+      await prisma.event.delete({ where: { id: vanished.id } });
+
+      const plan = await planBulkUpdate(
+        { eventIds: [kept.id, vanished.id], venue: "X" },
+        manager,
+      );
+
+      expect(plan.events).toHaveLength(1);
+      expect(plan.warnings.some((warning) => /deleted by somebody else/i.test(warning)))
+        .toBe(true);
+    });
+
+    it("records one audit entry for the action rather than one per row", async () => {
+      const first = await makeEvent(30);
+      const second = await makeEvent(31);
+
+      await applyBulkUpdate({ eventIds: [first.id, second.id], venue: "X" }, manager);
+
+      const entries = await prisma.auditLog.findMany({ where: { action: "BULK_UPDATE" } });
+      expect(entries).toHaveLength(1);
+      expect((entries[0]?.newValue as { eventIds: string[] }).eventIds).toHaveLength(2);
     });
   });
 
