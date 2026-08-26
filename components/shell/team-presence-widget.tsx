@@ -29,7 +29,7 @@ interface TeamPresence {
 const REFRESH_MS = 30_000;
 
 /** Above this, a claim is old enough to be worth a second look. */
-const LONG_RUNNING_MINUTES = 120;
+const LONG_RUNNING_MINUTES = 45;
 
 /**
  * "Who is working on what", for managers and administrators.

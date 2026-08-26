@@ -47,7 +47,7 @@ export const ANNOUNCEMENTS: readonly Announcement[] = [
     date: "Aug 25, 2026",
     kind: "added",
     title: "See who is working on what, from anywhere",
-    body: "A Team chip in the header shows how many people are marked as in progress right now. Open it for the list: who, which event, and how long they have been on it, across the Dashboard and C1 together. Oldest first, so anything that has been open a while is at the top and shows its time in amber past two hours. Click any entry to open that exact event — it clears the filters and takes you to the row. Managers and administrators only.",
+    body: "A Team chip in the header shows how many people are marked as in progress right now. Open it for the list: who, which event, and how long they have been on it, across the Dashboard and C1 together. Oldest first, so anything that has been open a while is at the top and shows its time in amber past 45 minutes. Click any entry to open that exact event — it clears the filters and takes you to the row. Managers and administrators only.",
   },
   {
     id: "2026-08-25-start-and-flags",
