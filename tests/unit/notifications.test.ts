@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { Announcement } from "@/lib/domain/announcements";
 import { releasesSince } from "@/lib/notify/watchers";
-import { clockifyHealthMessage, payrollMessage, releaseMessage } from "@/lib/notify/messages";
+import { clockifyHealthMessage, releaseMessage } from "@/lib/notify/messages";
 import { normaliseDriveFolderId } from "@/lib/services/settings";
 import {
   buildJwtClaims,
@@ -67,39 +67,6 @@ describe("releaseMessage", () => {
     const message = releaseMessage(LIST);
     expect(message.title).toContain("3 changes are live");
     expect(message.fields).toHaveLength(3);
-  });
-});
-
-describe("payrollMessage", () => {
-  const base = {
-    periodLabel: "10 Aug – 16 Aug",
-    sent: 4,
-    skipped: 0,
-    failed: 0,
-    total: "$1,240.00",
-    sentBy: "Avery Chen",
-  };
-
-  it("reads as clean when nothing failed", () => {
-    const message = payrollMessage(base);
-    expect(message.title).toBe("Payroll remittance sent");
-    expect(message.tone).toBe("good");
-    expect(message.fields?.map((field) => field.name)).not.toContain("Failed");
-  });
-
-  it("says so, and how to recover, when something failed", () => {
-    const message = payrollMessage({ ...base, failed: 2 });
-    expect(message.title).toContain("with failures");
-    expect(message.tone).toBe("warn");
-    const failed = message.fields?.find((field) => field.name === "Failed");
-    expect(failed?.value).toContain("retry");
-  });
-
-  it("only mentions skips when there were some", () => {
-    expect(payrollMessage(base).fields?.some((f) => f.name === "Skipped")).toBe(false);
-    expect(payrollMessage({ ...base, skipped: 1 }).fields?.some((f) => f.name === "Skipped")).toBe(
-      true,
-    );
   });
 });
 

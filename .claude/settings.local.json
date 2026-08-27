@@ -151,7 +151,8 @@
       "Bash(grep -E \"Assert|Equal|\\\\\"\\\\\\\\\\\\$|// \")",
       "Bash(awk '{printf \"%.1f MB  %s\\\\n\", $5/1024/1024, $NF}')",
       "Bash(sed -n '/is idempotent — re-ticking/,/^    }\\);$/p' tests/integration/workflow.test.ts)",
-      "Bash(sed -n '/does not record a no-op re-tick/,/^    }\\);$/p' tests/integration/workflow.test.ts)"
+      "Bash(sed -n '/does not record a no-op re-tick/,/^    }\\);$/p' tests/integration/workflow.test.ts)",
+      "Bash(node -e ' *)"
     ]
   }
 }

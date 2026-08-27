@@ -27,8 +27,6 @@ import {
   PAY_TYPE_LABELS,
   type PayType,
 } from "@/lib/domain/payroll-format";
-import { notify } from "@/lib/notify/discord";
-import { payrollMessage } from "@/lib/notify/messages";
 
 export interface RemittanceResult {
   sent: string[];
@@ -221,25 +219,16 @@ export async function sendRemittanceForPeriod(
     },
   });
 
-  // Announced after the audit entry, and never allowed to affect the outcome:
-  // the money has been sent by this point, and a chat message failing must not
-  // present itself as a failed payroll run.
-  if (settings.discordEnabled) {
-    await notify(
-      payrollMessage({
-        periodLabel: `${formatPlainDate(periodStart)} – ${formatPlainDate(periodEnd)}`,
-        sent: result.sent.length,
-        skipped: result.skipped.length,
-        failed: result.failed.length,
-        total: `$${formatMoney(
-          invoices
-            .reduce((sum, invoice) => sum.plus(invoice.amount), new Decimal(0))
-            .toFixed(2),
-        )}`,
-        sentBy: actor.effective.displayName,
-      }),
-    );
-  }
+  /*
+   * Nothing is announced to Discord here, deliberately.
+   *
+   * A remittance run used to post a summary carrying the week's total. Discord
+   * is a team-wide channel with no per-person addressing, so that put payroll
+   * figures in front of everybody who could read the channel — a disclosure
+   * nobody chose, on the one subject where the audience really matters. The
+   * audit entry above is the durable record, and the Payroll dashboard shows
+   * the same figures to the administrators who are supposed to see them.
+   */
 
   return result;
 }

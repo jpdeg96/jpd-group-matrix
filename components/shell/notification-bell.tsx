@@ -21,17 +21,17 @@ interface NotificationView {
 }
 
 /**
- * How often the bell re-reads.
+ * Polling cadence when the live stream is unavailable.
  *
- * Slower than presence: a flag is not a live feed, and somebody hearing about
- * one forty seconds late has lost nothing. Fast enough that it arrives while
- * they are still at their desk.
+ * Only a fallback. The stream is the normal path; this covers a browser or
+ * proxy that blocks event streams outright, where silently never updating
+ * would be far worse than a slow update.
  */
-const REFRESH_MS = 45_000;
+const POLL_MS = 20_000;
 
 const HEADLINE: Record<NotificationKind, string> = {
   FLAG_RAISED: "flagged an event",
-  FLAG_FIXED: "says a flag is dealt with",
+  FLAG_FIXED: "marked a flag resolved",
   FLAG_CLEARED: "cleared a flag you were on",
   MENTIONED: "mentioned you in a note",
 };
@@ -65,10 +65,61 @@ export function NotificationBell() {
     }
   }, []);
 
+  /*
+   * Live, not polled.
+   *
+   * A flag raised on somebody's event is a request for them to do something
+   * now, and the whole point is lost if they find out on their next page load.
+   * The server pushes when the list actually changes; a browser that cannot use
+   * event streams falls back to polling rather than silently never updating.
+   *
+   * EventSource reconnects on its own, so a dropped connection heals without
+   * any retry logic here — and the server re-sends on the first tick of each
+   * connection, so nothing that happened across the gap is missed.
+   */
   React.useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => clearInterval(timer);
+    let cancelled = false;
+    let source: EventSource | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+    const startPolling = () => {
+      if (pollTimer || cancelled) return;
+      void load();
+      pollTimer = setInterval(() => void load(), POLL_MS);
+    };
+
+    if (typeof EventSource === "undefined") {
+      startPolling();
+    } else {
+      source = new EventSource("/api/notifications/stream");
+
+      source.addEventListener("notifications", (event) => {
+        if (cancelled) return;
+        try {
+          const payload = JSON.parse((event as MessageEvent).data) as {
+            notifications: NotificationView[];
+            unreadCount: number;
+          };
+          setItems(payload.notifications);
+          setUnread(payload.unreadCount);
+        } catch {
+          // Ignore a malformed frame rather than tearing down the stream.
+        }
+      });
+
+      // The server closes every ~50s by design and the browser reconnects, so
+      // an error here is usually that expected cycle. Only fall back to polling
+      // if the connection is genuinely dead.
+      source.onerror = () => {
+        if (source && source.readyState === EventSource.CLOSED) startPolling();
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      source?.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, [load]);
 
   React.useEffect(() => {
@@ -87,18 +138,21 @@ export function NotificationBell() {
     };
   }, [open]);
 
-  async function markRead(ids: string[] | "ALL") {
+  async function send(body: Record<string, unknown>) {
     try {
       const data = await api.post<{
         notifications: NotificationView[];
         unreadCount: number;
-      }>("/api/notifications", ids === "ALL" ? { action: "READ_ALL" } : { action: "READ", ids });
+      }>("/api/notifications", body);
       setItems(data.notifications);
       setUnread(data.unreadCount);
     } catch {
       void load();
     }
   }
+
+  const markRead = (ids: string[] | "ALL") =>
+    send(ids === "ALL" ? { action: "READ_ALL" } : { action: "READ", ids });
 
   function openEvent(item: NotificationView) {
     setOpen(false);
@@ -146,11 +200,23 @@ export function NotificationBell() {
                 ? "Nothing needs your attention."
                 : "Click one to open the event."}
             </span>
-            {unread > 0 ? (
-              <Button size="sm" variant="ghost" onClick={() => void markRead("ALL")}>
-                Mark all read
-              </Button>
-            ) : null}
+            <span className="flex shrink-0 items-center gap-1">
+              {unread > 0 ? (
+                <Button size="sm" variant="ghost" onClick={() => void markRead("ALL")}>
+                  Mark all read
+                </Button>
+              ) : null}
+              {items.length > 0 ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="Remove them all. Marking read only says you have seen them."
+                  onClick={() => void send({ action: "CLEAR" })}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </span>
           </div>
 
           {items.map((item) => (
@@ -159,7 +225,11 @@ export function NotificationBell() {
               type="button"
               role="menuitem"
               onClick={() => openEvent(item)}
-              className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left transition hover:brightness-95"
+              // An outline rather than a brightness shift: an unread entry is
+              // already tinted, so brightening it says nothing, and these are
+              // three lines of small text stacked tightly where a tint leaves
+              // the boundary ambiguous.
+              className="jpd-hover-ring flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left"
               style={{
                 background: item.readAt ? "transparent" : "var(--accent-soft)",
               }}

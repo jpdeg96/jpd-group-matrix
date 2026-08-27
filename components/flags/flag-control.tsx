@@ -73,14 +73,14 @@ export function FlagControl({
       await api.post(`/api/events/${eventId}/flag/fixed`, {
         reason: fixNote.trim() || null,
       });
-      toast.success("Marked as dealt with. A manager will check and clear it.");
+      toast.success("Marked as resolved. A manager will check and clear it.");
       setFixOpen(false);
       setFixNote("");
       onChanged();
       return true;
     } catch (error) {
       toast.error(
-        "Could not mark that as dealt with.",
+        "Could not mark that as resolved.",
         error instanceof ApiRequestError ? error.message : undefined,
       );
       return false;
@@ -168,7 +168,7 @@ export function FlagControl({
             className="text-[10.5px] underline-offset-2 hover:underline disabled:opacity-50"
             style={{ color: "var(--ink-subtle)" }}
           >
-            Mark as dealt with
+            Mark as Resolved
           </button>
         ) : (
           <span className="text-[10px]" style={{ color: "var(--ink-subtle)" }}>
@@ -224,7 +224,7 @@ export function FlagControl({
               className="mt-2 rounded border px-2 py-1.5 text-[11.5px]"
               style={{ borderColor: "var(--warn)", background: "var(--warn-soft)", color: "var(--warn)" }}
             >
-              {flagFixedByName ?? "Somebody"} marked this as dealt with
+              {flagFixedByName ?? "Somebody"} marked this as resolved
               {flagFixedAt ? ` on ${formatBusinessTimestamp(flagFixedAt)}` : ""}.
               It stays flagged until a manager checks and clears it.
             </p>
@@ -234,7 +234,7 @@ export function FlagControl({
             <p className="mt-2 text-[11px]" style={{ color: "var(--ink-subtle)" }}>
               Only a manager or administrator can clear this.
               {canWork && !fixed
-                ? " Mark it as dealt with once you have sorted it and they will be told."
+                ? " Mark it as resolved once you have sorted it and they will be told."
                 : ""}
             </p>
           ) : null}
@@ -243,7 +243,7 @@ export function FlagControl({
         <Dialog
           open={fixOpen}
           onClose={() => setFixOpen(false)}
-          title="Mark as dealt with"
+          title="Mark as Resolved"
           description="This tells the managers it is ready to check. The flag stays raised until one of them clears it."
           width="sm"
           footer={
@@ -252,7 +252,7 @@ export function FlagControl({
                 Cancel
               </Button>
               <Button variant="primary" loading={pending} onClick={markFixed}>
-                Mark as dealt with
+                Mark as Resolved
               </Button>
             </>
           }

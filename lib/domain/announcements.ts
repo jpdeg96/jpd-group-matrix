@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-27-bell-refinements",
+    date: "Aug 27, 2026",
+    kind: "changed",
+    title: "Notifications arrive as they happen, and payroll stays off Discord",
+    body: "The bell now updates live — a flag raised on your event appears within a couple of seconds without reloading. Hovering a notification outlines it so you can see which one you are about to open, and there is a Clear button to empty the list (Mark all read only says you have seen them). Names you are mentioned by now appear in that person's own colour wherever the note is shown. On a flag, Mark as dealt with is now Mark as Resolved. Separately, payroll remittance no longer posts to Discord: the channel has no per-person addressing, so a run put the week's figures in front of everybody who could read it. Releases and Clockify outages still post; the administrator's summary email and the audit log are unchanged.",
+  },
+  {
     id: "2026-08-26-notifications-and-ownership",
     date: "Aug 26, 2026",
     kind: "added",

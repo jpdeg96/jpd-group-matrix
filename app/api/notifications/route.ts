@@ -2,7 +2,11 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
 import { requireUser } from "@/lib/auth/guards";
-import { listNotifications, markRead } from "@/lib/services/notifications";
+import {
+  clearNotifications,
+  listNotifications,
+  markRead,
+} from "@/lib/services/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,17 +25,25 @@ export async function GET(request: NextRequest) {
   });
 }
 
-const readSchema = z.union([
+const actionSchema = z.union([
   z.object({ action: z.literal("READ_ALL") }),
   z.object({ action: z.literal("READ"), ids: z.array(z.string().uuid()).min(1) }),
+  // Clearing removes them; marking read only says they have been seen. On a
+  // bell somebody checks constantly, a read pile still costs a scroll.
+  z.object({ action: z.literal("CLEAR") }),
 ]);
 
 export async function POST(request: NextRequest) {
   return handle(async () => {
     const actor = await requireUser();
-    const input = readSchema.parse(await readJson(request));
+    const input = actionSchema.parse(await readJson(request));
 
-    await markRead(actor, input.action === "READ_ALL" ? "ALL" : input.ids);
+    if (input.action === "CLEAR") {
+      await clearNotifications(actor);
+    } else {
+      await markRead(actor, input.action === "READ_ALL" ? "ALL" : input.ids);
+    }
+
     return jsonOk(await listNotifications(actor));
   });
 }

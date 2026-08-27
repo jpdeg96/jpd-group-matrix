@@ -179,6 +179,38 @@ export async function markRead(
   return result.count;
 }
 
+/**
+ * Removes this person's notifications outright.
+ *
+ * Distinct from marking them read. Read means "I have seen this"; clearing
+ * means "I am done with the list" — the difference matters on a bell somebody
+ * checks constantly, where a read pile still costs a scroll to get past.
+ * Scoped to the recipient in the `where`, so no id can reach anybody else's.
+ */
+export async function clearNotifications(actor: ActorContext): Promise<number> {
+  const result = await prisma.notification.deleteMany({
+    where: { recipientId: actor.effective.id },
+  });
+  return result.count;
+}
+
+/**
+ * A cheap change signature for the stream.
+ *
+ * Ids and read state, nothing else: those are the only things that alter what
+ * the bell renders. Comparing this means a quiet account sends no frames.
+ */
+export async function notificationSignature(actor: ActorContext): Promise<string> {
+  const rows = await prisma.notification.findMany({
+    where: { recipientId: actor.effective.id },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: NOTIFICATION_PAGE,
+    select: { id: true, readAt: true },
+  });
+
+  return rows.map((row) => `${row.id}:${row.readAt ? "r" : "u"}`).join("|");
+}
+
 /** Housekeeping. Safe to run as often as you like. */
 export async function sweepOldNotifications(): Promise<number> {
   const cutoff = new Date(Date.now() - NOTIFICATION_RETENTION_DAYS * 86_400_000);

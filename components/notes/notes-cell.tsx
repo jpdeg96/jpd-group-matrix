@@ -5,6 +5,7 @@ import { Button, Dialog, Textarea, UserChip } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
+import { splitMentions } from "@/lib/domain/mentions";
 
 export interface NoteView {
   id: string;
@@ -88,7 +89,9 @@ export function NotesCell({
                 {noteCount > 1 ? ` +${noteCount - 1} more` : ""}
               </span>
             </span>
-            <span className="line-clamp-2 whitespace-pre-wrap">{latest.body}</span>
+            <span className="line-clamp-2 whitespace-pre-wrap">
+              <MentionText body={latest.body} users={mentionable} />
+            </span>
           </span>
         ) : (
           <span style={{ color: "var(--ink-subtle)" }}>
@@ -109,6 +112,49 @@ export function NotesCell({
           onLatestChange={onLatestChange}
         />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Note text with each mention in that person's own colour.
+ *
+ * The colour is the same one carrying their identity everywhere else — the dot
+ * in every dropdown, the assignment chip, the presence badge — so a mention is
+ * recognisable at a glance without reading the name. A soft background rather
+ * than coloured text alone: some identity colours are pale, and text set in one
+ * of those on the note surface would be a mention nobody could read.
+ *
+ * Falls back to plain text for anybody no longer in the list, which is what a
+ * mention of a deactivated colleague becomes.
+ */
+function MentionText({
+  body,
+  users,
+}: {
+  body: string;
+  users: Array<{ id: string; displayName: string; color: string }>;
+}) {
+  const segments = React.useMemo(() => splitMentions(body, users), [body, users]);
+
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.user ? (
+          <span
+            key={index}
+            className="rounded px-0.5 font-medium"
+            style={{
+              color: segment.user.color,
+              background: `color-mix(in oklch, ${segment.user.color} 16%, transparent)`,
+            }}
+          >
+            {segment.text}
+          </span>
+        ) : (
+          <React.Fragment key={index}>{segment.text}</React.Fragment>
+        ),
+      )}
     </>
   );
 }
@@ -460,7 +506,9 @@ function NotesDialog({
                     </div>
                   ) : (
                     <>
-                      <p className="whitespace-pre-wrap text-[12.5px]">{note.body}</p>
+                      <p className="whitespace-pre-wrap text-[12.5px]">
+                        <MentionText body={note.body} users={mentionable} />
+                      </p>
                       {canEdit ? (
                         <div className="mt-1 flex gap-2">
                           <button

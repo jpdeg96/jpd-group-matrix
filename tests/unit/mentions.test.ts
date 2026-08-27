@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findMentions } from "@/lib/domain/mentions";
+import { findMentions, splitMentions } from "@/lib/domain/mentions";
 
 const PEOPLE = [
   { id: "dana", displayName: "Dana Whitfield" },
@@ -58,5 +58,53 @@ describe("findMentions", () => {
     expect(findMentions("@Avery Chen, please confirm.", PEOPLE).map((u) => u.id)).toEqual([
       "avery",
     ]);
+  });
+});
+
+describe("splitMentions", () => {
+  it("splits text around a mention", () => {
+    expect(splitMentions("ask @Marco Ruiz about it", PEOPLE)).toEqual([
+      { text: "ask ", user: null },
+      { text: "@Marco Ruiz", user: { id: "marco", displayName: "Marco Ruiz" } },
+      { text: " about it", user: null },
+    ]);
+  });
+
+  it("returns one plain run when nothing is mentioned", () => {
+    expect(splitMentions("nothing here", PEOPLE)).toEqual([
+      { text: "nothing here", user: null },
+    ]);
+  });
+
+  it("handles a mention at the very start and very end", () => {
+    expect(splitMentions("@Dana", PEOPLE)).toEqual([
+      { text: "@Dana", user: { id: "dana-b", displayName: "Dana" } },
+    ]);
+  });
+
+  it("highlights every occurrence, not just the first", () => {
+    // findMentions reports one person once; the rendering has to mark them
+    // wherever they appear, or the second mention looks like plain text.
+    const segments = splitMentions("@Dana and again @Dana", PEOPLE);
+    expect(segments.filter((segment) => segment.user !== null)).toHaveLength(2);
+    expect(findMentions("@Dana and again @Dana", PEOPLE)).toHaveLength(1);
+  });
+
+  it("reassembles into exactly the original text", () => {
+    // The rendered note must be the note. Any drift here silently rewrites what
+    // somebody wrote.
+    const body = "@Avery Chen — see @Marco Ruiz's comment, cc @Dana Whitfield.";
+    expect(splitMentions(body, PEOPLE).map((s) => s.text).join("")).toBe(body);
+  });
+
+  it("does not highlight an email address", () => {
+    const segments = splitMentions("mail dana@jpdgroup.test today", PEOPLE);
+    expect(segments.every((segment) => segment.user === null)).toBe(true);
+  });
+
+  it("carries the colour through for rendering", () => {
+    const coloured = [{ id: "marco", displayName: "Marco Ruiz", color: "#ca8a04" }];
+    const segments = splitMentions("hi @Marco Ruiz", coloured);
+    expect(segments[1]?.user?.color).toBe("#ca8a04");
   });
 });

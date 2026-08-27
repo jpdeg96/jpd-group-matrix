@@ -65,45 +65,6 @@ export function releaseMessage(released: readonly Announcement[]): NotifyMessage
   };
 }
 
-export interface PayrollSummary {
-  periodLabel: string;
-  sent: number;
-  skipped: number;
-  failed: number;
-  /** Already formatted, including the currency symbol. */
-  total: string;
-  sentBy: string;
-}
-
-/** Remittance has gone out for a pay period. */
-export function payrollMessage(summary: PayrollSummary): NotifyMessage {
-  const clean = summary.failed === 0;
-
-  return {
-    title: clean ? "Payroll remittance sent" : "Payroll remittance sent with failures",
-    description: `Week of ${summary.periodLabel}.`,
-    tone: clean ? "good" : "warn",
-    url: link("/payroll/invoices"),
-    fields: [
-      { name: "Invoices emailed", value: String(summary.sent), inline: true },
-      { name: "Total", value: summary.total, inline: true },
-      { name: "Sent by", value: summary.sentBy, inline: true },
-      ...(summary.skipped > 0
-        ? [{ name: "Skipped", value: `${summary.skipped} already sent`, inline: true }]
-        : []),
-      ...(summary.failed > 0
-        ? [
-            {
-              name: "Failed",
-              value: `${summary.failed} — retry from the Payroll dashboard, already-sent invoices are not re-emailed.`,
-            },
-          ]
-        : []),
-    ],
-    footer: "JPD Group Matrix",
-  };
-}
-
 /**
  * Clockify started or stopped answering.
  *
@@ -133,7 +94,7 @@ export function testMessage(triggeredBy: string): NotifyMessage {
   return {
     title: "Test notification",
     description:
-      "Notifications are working. Real ones arrive when a release deploys, payroll remittance goes out, or Clockify stops responding.",
+      "Notifications are working. Real ones arrive when a release deploys, or when Clockify stops or starts responding.",
     tone: "info",
     fields: [{ name: "Sent by", value: triggeredBy, inline: true }],
     footer: "JPD Group Matrix",

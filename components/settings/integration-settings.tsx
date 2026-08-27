@@ -232,7 +232,7 @@ function DiscordSettings({
     <Card>
       <PageHeader
         title="Discord"
-        subtitle="Posts releases, payroll runs and Clockify outages to a channel."
+        subtitle="Posts releases and Clockify outages to a channel."
         actions={
           <>
             <Button size="sm" loading={testing} disabled={!webhookPresent} onClick={test}>
@@ -275,9 +275,11 @@ function DiscordSettings({
           <span>
             Post notifications to Discord
             <span className="block text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
-              A release going live, remittance being sent, and Clockify starting or
-              stopping responding. Notifications never fail the work that triggered
-              them.
+              A release going live, and Clockify starting or stopping responding.
+              Notifications never fail the work that triggered them. Payroll is
+              deliberately absent — the channel has no per-person addressing, so
+              posting a run would put the week&rsquo;s figures in front of
+              everybody who can read it.
             </span>
           </span>
         </label>
