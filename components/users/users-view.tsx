@@ -42,6 +42,7 @@ interface FormState {
   password: string;
   clockifyUserId: string;
   excludeFromTimeReport: boolean;
+  canStartCompleted: boolean;
 }
 
 const EMPTY: FormState = {
@@ -53,6 +54,7 @@ const EMPTY: FormState = {
   password: "",
   clockifyUserId: "",
   excludeFromTimeReport: false,
+  canStartCompleted: false,
 };
 
 const ROLE_DESCRIPTIONS: Record<UserRoleValue, string> = {
@@ -296,6 +298,7 @@ function UserFormDialog({
             password: "",
             clockifyUserId: user.clockifyUserId ?? "",
             excludeFromTimeReport: user.excludeFromTimeReport,
+            canStartCompleted: user.canStartCompleted,
           }
         : EMPTY,
     );
@@ -320,6 +323,7 @@ function UserFormDialog({
         color: form.color,
         clockifyUserId: form.clockifyUserId.trim() || null,
         excludeFromTimeReport: form.excludeFromTimeReport,
+        canStartCompleted: form.canStartCompleted,
       };
 
       // An empty password field on edit means "leave it alone", never "clear it".
@@ -496,6 +500,24 @@ function UserFormDialog({
             <span className="block text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
               For owners and administrators whose hours are not comparable to
               operational staff. They still appear in every other metric.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-2 text-[12.5px]">
+          <input
+            type="checkbox"
+            checked={form.canStartCompleted}
+            onChange={(event) => update("canStartCompleted", event.target.checked)}
+            style={{ accentColor: "var(--accent)" }}
+            className="mt-0.5 h-3.5 w-3.5"
+          />
+          <span>
+            Allow starting completed events
+            <span className="block text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
+              Normally Start is refused on an event already ticked Complete —
+              the honest correction is to untick it first. Turn this on only for
+              somebody who genuinely needs the exception.
             </span>
           </span>
         </label>

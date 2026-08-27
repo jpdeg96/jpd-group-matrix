@@ -43,6 +43,20 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-26-notifications-and-ownership",
+    date: "Aug 26, 2026",
+    kind: "added",
+    title: "A notification bell, and rows now belong to whoever holds them",
+    body: "There is a bell in the header. It tells you when a manager flags an event assigned to you, when somebody flags one and you are a manager, when a flag you raised is cleared, and when anybody writes your name into a note — type @ in a note to mention somebody and pick them from the list. Click a notification to open that exact event. Flags now have a middle step: if a flag is yours to deal with, Mark as dealt with tells the managers it is ready to check, and it stays flagged until one of them clears it. Separately, the checkboxes, flag, notes and Start on an event now belong to whoever it is assigned to — unassigned rows stay open to everyone, and managers can still do anything. Ticking Complete now stops your in progress badge, and you cannot start an event that is ticked Complete unless an administrator has granted you that exception on your user.",
+  },
+  {
+    id: "2026-08-26-table-options",
+    date: "Aug 26, 2026",
+    kind: "added",
+    title: "Pages, row shading, and a clearer team panel",
+    body: "The Dashboard now pages: choose 50, 100, 250 or All at the bottom, and it is remembered on that machine between sessions. There is a Shade alternate rows option beside it if banding helps you track across a wide row. And in the Team panel, hovering an entry outlines it, so it is obvious which person and event you are about to open.",
+  },
+  {
     id: "2026-08-26-bulk-actions",
     date: "Aug 26, 2026",
     kind: "added",

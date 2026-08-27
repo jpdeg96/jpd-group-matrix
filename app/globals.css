@@ -241,6 +241,28 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* A hover state for tightly-stacked list entries.
+ *
+ * An outline rather than a background tint: these entries are two or three
+ * lines of small text with little space between them, and a tint leaves the
+ * boundary ambiguous — you cannot tell which one you are about to click, which
+ * is the only question the hover state exists to answer. The ring is drawn
+ * inside the element so it never shifts the layout of its neighbours.
+ */
+.jpd-hover-ring {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  transition:
+    outline-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.jpd-hover-ring:hover,
+.jpd-hover-ring:focus-visible {
+  outline-color: var(--accent);
+  background-color: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
 /* Respect users who have asked for less motion: keep the color and the inset
    rule, drop the movement entirely. */
 @media (prefers-reduced-motion: reduce) {

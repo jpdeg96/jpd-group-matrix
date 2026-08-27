@@ -74,11 +74,14 @@ export interface C1RowView {
   flaggedAt: string | null;
   flaggedByName: string | null;
   flagReason: string | null;
+  flagFixedAt: string | null;
+  flagFixedByName: string | null;
 }
 
 const c1Include = {
   eventType: { select: { id: true, name: true, emoji: true } },
   flaggedBy: { select: { displayName: true } },
+  flagFixedBy: { select: { displayName: true } },
   stages: {
     select: {
       id: true,
@@ -142,6 +145,8 @@ function toRow(event: C1Event, config: ScheduleConfig): C1RowView | null {
     flaggedAt: event.flaggedAt?.toISOString() ?? null,
     flaggedByName: event.flaggedBy?.displayName ?? null,
     flagReason: event.flagReason,
+    flagFixedAt: event.flagFixedAt?.toISOString() ?? null,
+    flagFixedByName: event.flagFixedBy?.displayName ?? null,
   };
 }
 

@@ -11,8 +11,10 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { forbidden, notFound, validationError } from "@/lib/errors";
-import { auditActor, type ActorContext } from "@/lib/auth/actor";
+import { assertCanWorkOn, auditActor, type ActorContext } from "@/lib/auth/actor";
+import { findMentions } from "@/lib/domain/mentions";
 import { recordAudit } from "./audit";
+import { notify } from "./notifications";
 
 export interface NoteView {
   id: string;
@@ -120,26 +122,59 @@ export async function addNote(
 
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true },
+    select: { id: true, assigneeId: true },
   });
   if (!event) throw notFound("That event no longer exists.");
 
-  const note = await prisma.eventNote.create({
-    data: {
-      eventId,
-      // Attributed to the effective user so an impersonated session reads
-      // naturally; the audit log still records who really wrote it.
-      authorId: actor.effective.id,
-      body: trimmed,
-    },
-    select: {
-      id: true,
-      body: true,
-      authorId: true,
-      createdAt: true,
-      editedAt: true,
-      author: { select: { displayName: true, color: true } },
-    },
+  assertCanWorkOn(actor, event.assigneeId, "add a note to");
+
+  /*
+   * Mentions are matched against the real list of people, not a regex.
+   *
+   * Display names contain spaces, so "@Dana Whitfield" is one mention rather
+   * than a mention of "Dana" followed by a stray word — and a token-based
+   * parser gets that wrong exactly when two people share a first name, which is
+   * when getting it right matters most.
+   */
+  const mentionable = await prisma.user.findMany({
+    where: { active: true },
+    select: { id: true, displayName: true },
+  });
+  const mentioned = findMentions(trimmed, mentionable);
+
+  const note = await prisma.$transaction(async (tx) => {
+    const created = await tx.eventNote.create({
+      data: {
+        eventId,
+        // Attributed to the effective user so an impersonated session reads
+        // naturally; the audit log still records who really wrote it.
+        authorId: actor.effective.id,
+        body: trimmed,
+      },
+      select: {
+        id: true,
+        body: true,
+        authorId: true,
+        createdAt: true,
+        editedAt: true,
+        author: { select: { displayName: true, color: true } },
+      },
+    });
+
+    if (mentioned.length > 0) {
+      await notify(
+        {
+          recipientIds: mentioned.map((user) => user.id),
+          actorId: actor.effective.id,
+          kind: "MENTIONED",
+          eventId,
+          detail: trimmed,
+        },
+        tx,
+      );
+    }
+
+    return created;
   });
 
   await recordAudit({

@@ -10,7 +10,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { notFound } from "@/lib/errors";
+import { conflict, notFound } from "@/lib/errors";
 import { assertCanStartWork, type ActorContext } from "@/lib/auth/actor";
 import { plainDateFromDbDate, type PlainDate } from "@/lib/date/plain-date";
 import { getSettings } from "./settings";
@@ -246,11 +246,37 @@ export async function startPresence(
 ): Promise<void> {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, assigneeId: true },
+    select: { id: true, assigneeId: true, completedAt: true },
   });
   if (!event) throw notFound("That event no longer exists.");
 
   assertCanStartWork(actor, event.assigneeId);
+
+  /*
+   * Starting work on something already recorded as finished.
+   *
+   * Almost always a mis-click, and the honest correction is to untick Complete
+   * first — which is exactly the case the stale filter exists to surface, and
+   * which unticking no longer punishes. Refusing here keeps "complete" and "in
+   * progress" from being true of the same row at once.
+   *
+   * The override is per person rather than a global setting, so the exception
+   * can be granted to whoever genuinely needs it without loosening the rule for
+   * everybody. It is read fresh rather than taken from the session, because a
+   * permission revoked five minutes ago must not survive in somebody's JWT.
+   */
+  if (event.completedAt !== null) {
+    const permitted = await prisma.user.findUnique({
+      where: { id: actor.effective.id },
+      select: { canStartCompleted: true },
+    });
+
+    if (!permitted?.canStartCompleted) {
+      throw conflict(
+        "This event is ticked Complete. Untick it first if there is more to do — or ask an administrator to allow you to start completed events.",
+      );
+    }
+  }
 
   const userId = actor.effective.id;
   const now = new Date();

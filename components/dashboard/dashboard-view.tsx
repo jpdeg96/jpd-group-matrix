@@ -28,6 +28,11 @@ import { usePresence } from "@/components/presence/use-presence";
 import { useLiveRefresh } from "@/components/presence/use-live-refresh";
 import { rowElementId, useFocusedRow } from "@/components/presence/use-focused-row";
 import { useCompletionCelebration } from "./use-completion-celebration";
+import {
+  PAGE_SIZES,
+  pageSizeLabel,
+  useTablePreferences,
+} from "./use-table-preferences";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
 import { FlagControl } from "@/components/flags/flag-control";
@@ -151,6 +156,8 @@ export function DashboardView({
   const [bulkOpen, setBulkOpen] = React.useState(false);
 
   const columns = useColumnWidths("dashboard");
+  const { pageSize, stripeRows, update: setPreference } = useTablePreferences("dashboard");
+  const [page, setPage] = React.useState(0);
 
   React.useEffect(() => {
     setEvents(initialEvents);
@@ -450,6 +457,56 @@ export function DashboardView({
 
   /** The plain outstanding-work view the "open" counter describes. */
   const showOpenWork = clearFilters;
+
+  /*
+   * Whether this person may touch the working state of a row.
+   *
+   * The checkboxes, the flag, the notes and Start are all records of work done
+   * on a specific event, and an event has one person accountable for it.
+   * Somebody else ticking SeatGeek says *that* person checked SeatGeek, which
+   * is either untrue or invisible.
+   *
+   * Unassigned rows stay open to everybody, or work nobody has claimed would be
+   * work nobody may touch. The server enforces the same rule; this only stops
+   * offering what it would refuse.
+   */
+  const mayWorkOn = React.useCallback(
+    (assigneeId: string | null) =>
+      canManage || assigneeId === null || assigneeId === currentUser.id,
+    [canManage, currentUser.id],
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Paging                                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const pageCount =
+    pageSize === "ALL" ? 1 : Math.max(1, Math.ceil(visible.length / pageSize));
+
+  /*
+   * Filtering resets to the first page, and so does landing past the end.
+   *
+   * Without this, narrowing a filter while on page 6 shows an empty table with
+   * no indication that the rows exist a few pages back — which reads as "no
+   * results" and is the single most confusing thing pagination can do.
+   */
+  React.useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+
+  const paged = React.useMemo(() => {
+    if (pageSize === "ALL") return visible;
+    const start = page * pageSize;
+    return visible.slice(start, start + pageSize);
+  }, [visible, page, pageSize]);
+
+  // Somebody sent to a specific row must not land on the page that does not
+  // contain it. Page size stays as they left it; only the page moves.
+  React.useEffect(() => {
+    if (!focusId || pageSize === "ALL") return;
+    const index = visible.findIndex((event) => event.id === focusId);
+    if (index >= 0) setPage(Math.floor(index / pageSize));
+  }, [focusId, visible, pageSize]);
 
   /*
    * Selection survives filtering, deliberately.
@@ -862,11 +919,12 @@ export function DashboardView({
               </tr>
             </thead>
             <tbody>
-              {visible.map((event) => {
+              {paged.map((event, rowIndex) => {
                 const others = (presence.byEvent.get(event.id) ?? []).filter(
                   (entry) => entry.userId !== currentUser.id,
                 );
                 const working = presence.isWorking(event.id);
+                const mayWork = mayWorkOn(event.assigneeId);
                 const promoted = event.status === "C1" || event.status === "COMPLETED";
                 const days = daysUntilEvent(event.eventDate, today);
                 const sinceComplete = calendarDaysSince(event.completedOn, today);
@@ -891,6 +949,19 @@ export function DashboardView({
                       // shown alongside open work, the two are distinguishable
                       // without reading the status.
                       opacity: promoted && scope !== "COMPLETED" ? 0.72 : 1,
+                      /*
+                       * Optional banding, off by default.
+                       *
+                       * Skipped entirely on a live row: that one already carries
+                       * a colour meaning "somebody is on this", and a stripe
+                       * underneath it either fights the meaning or wins.
+                       */
+                      // backgroundColor rather than the `background` shorthand:
+                      // the shorthand also resets clip, origin and repeat, which
+                      // is more than is wanted and more to go wrong on a <tr>.
+                      ...(stripeRows && rowIndex % 2 === 1 && !working && others.length === 0
+                        ? { backgroundColor: "var(--canvas)" }
+                        : {}),
                     }}
                   >
                     {selecting ? (
@@ -945,7 +1016,7 @@ export function DashboardView({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === event.id}
-                        canStart={canManage || event.assigneeId === currentUser.id}
+                        canStart={mayWork}
                         assigned={event.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
@@ -1002,7 +1073,10 @@ export function DashboardView({
                         flaggedAt={event.flaggedAt}
                         flaggedByName={event.flaggedByName}
                         flagReason={event.flagReason}
+                        flagFixedAt={event.flagFixedAt}
+                        flagFixedByName={event.flagFixedByName}
                         canResolve={canManage}
+                        canWork={mayWorkOn(event.assigneeId)}
                         onChanged={() => router.refresh()}
                       />
                     </Td>
@@ -1012,7 +1086,7 @@ export function DashboardView({
                         <Checkbox
                           label="Complete"
                           checked={event.completedAt !== null}
-                          disabled={isPending(event.id, "complete")}
+                          disabled={isPending(event.id, "complete") || !mayWork}
                           pending={isPending(event.id, "complete")}
                           onChange={(e) =>
                             mutate(event.id, "complete", { complete: e.target.checked }, (item) => ({
@@ -1074,7 +1148,7 @@ export function DashboardView({
                         <Checkbox
                           label="SeatGeek"
                           checked={event.seatGeekCheckedAt !== null}
-                          disabled={isPending(event.id, "seatGeekChecked")}
+                          disabled={isPending(event.id, "seatGeekChecked") || !mayWork}
                           pending={isPending(event.id, "seatGeekChecked")}
                           onChange={(e) =>
                             mutate(event.id, "seatGeekChecked", { seatGeekChecked: e.target.checked }, (item) => ({
@@ -1096,7 +1170,7 @@ export function DashboardView({
                         <Checkbox
                           label="TicketData"
                           checked={event.ticketDataChecked}
-                          disabled={isPending(event.id, "ticketDataChecked")}
+                          disabled={isPending(event.id, "ticketDataChecked") || !mayWork}
                           pending={isPending(event.id, "ticketDataChecked")}
                           onChange={(e) =>
                             mutate(event.id, "ticketDataChecked", { ticketDataChecked: e.target.checked }, (item) => ({
@@ -1161,6 +1235,8 @@ export function DashboardView({
                         latest={notes[event.id] ?? null}
                         currentUserId={currentUser.id}
                         isAdmin={isAdmin}
+                        canWrite={mayWork}
+                        mentionable={activeUsers}
                         onCountChange={(id, delta) =>
                           setNoteCounts((current) => ({
                             ...current,
@@ -1186,7 +1262,7 @@ export function DashboardView({
                           <Checkbox
                             label="Audited"
                             checked={event.auditedAt !== null}
-                            disabled={isPending(event.id, "audited")}
+                            disabled={isPending(event.id, "audited") || !mayWork}
                             pending={isPending(event.id, "audited")}
                             onChange={(e) =>
                               mutate(event.id, "audited", { audited: e.target.checked }, (item) => ({
@@ -1228,6 +1304,78 @@ export function DashboardView({
           </table>
         </div>
       )}
+
+      {visible.length > 0 ? (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t px-5 py-2"
+          style={{ borderColor: "var(--line)" }}
+        >
+          <span className="text-[11.5px] tabular-nums" style={{ color: "var(--ink-muted)" }}>
+            {pageSize === "ALL"
+              ? `All ${visible.length}`
+              : `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, visible.length)} of ${visible.length}`}
+          </span>
+
+          {pageCount > 1 ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((value) => Math.max(0, value - 1))}
+              >
+                Previous
+              </Button>
+              <span
+                className="px-1 text-[11.5px] tabular-nums"
+                style={{ color: "var(--ink-muted)" }}
+              >
+                Page {page + 1} of {pageCount}
+              </span>
+              <Button
+                size="sm"
+                disabled={page >= pageCount - 1}
+                onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+
+          <label className="ml-auto flex items-center gap-1.5 text-[11.5px]"
+                 style={{ color: "var(--ink-muted)" }}>
+            Rows
+            <Select
+              aria-label="Rows per page"
+              className="h-7 py-0 text-[11.5px]"
+              value={String(pageSize)}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setPreference({ pageSize: raw === "ALL" ? "ALL" : (Number(raw) as 50 | 100 | 250) });
+                // A new page size makes the old page number meaningless.
+                setPage(0);
+              }}
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={String(size)} value={String(size)}>
+                  {pageSizeLabel(size)}
+                </option>
+              ))}
+            </Select>
+          </label>
+
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px]"
+                 style={{ color: "var(--ink-muted)" }}>
+            <input
+              type="checkbox"
+              checked={stripeRows}
+              onChange={(event) => setPreference({ stripeRows: event.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
+              className="h-3.5 w-3.5"
+            />
+            Shade alternate rows
+          </label>
+        </div>
+      ) : null}
 
       {canManage ? (
         <>

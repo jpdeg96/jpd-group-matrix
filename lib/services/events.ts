@@ -24,10 +24,16 @@ import {
 } from "@/lib/domain/review-schedule";
 import { reviewStageLabel } from "@/lib/domain/constants";
 import { conflict, forbidden, notFound, validationError } from "@/lib/errors";
-import { assertCanAssign, auditActor, type ActorContext } from "@/lib/auth/actor";
+import {
+  assertCanAssign,
+  assertCanWorkOn,
+  auditActor,
+  type ActorContext,
+} from "@/lib/auth/actor";
 import { canAssignOthers } from "@/lib/domain/constants";
 import { businessToday, getScheduleConfig, getSettings } from "./settings";
 import { recordAudit } from "./audit";
+import { managerIds, notify } from "./notifications";
 
 /**
  * Fields that describe *what the event is*, as opposed to the operational state
@@ -101,6 +107,12 @@ export interface DashboardEventView {
   flaggedByColor: string | null;
   flagReason: string | null;
   /**
+   * Set once whoever the flag was aimed at says they have dealt with it. The
+   * flag is still raised — this only means a manager should check and clear it.
+   */
+  flagFixedAt: string | null;
+  flagFixedByName: string | null;
+  /**
    * Where the row came from when it was not created here. Null for native
    * events. Drives the "Legacy" badge, which explains why an imported row has
    * no assignee and nobody against its completion.
@@ -116,6 +128,7 @@ const dashboardInclude = {
   ticketDataBy: { select: { displayName: true, color: true } },
   auditedBy: { select: { displayName: true, color: true } },
   flaggedBy: { select: { displayName: true, color: true } },
+  flagFixedBy: { select: { displayName: true } },
   _count: { select: { notes: true } },
 } satisfies Prisma.EventInclude;
 
@@ -153,6 +166,8 @@ function toView(event: EventWithRelations, timeZone: string): DashboardEventView
     flaggedByName: event.flaggedBy?.displayName ?? null,
     flaggedByColor: event.flaggedBy?.color ?? null,
     flagReason: event.flagReason,
+    flagFixedAt: event.flagFixedAt?.toISOString() ?? null,
+    flagFixedByName: event.flagFixedBy?.displayName ?? null,
     legacySource: event.legacySource,
   };
 }
@@ -427,6 +442,23 @@ export async function updateEvent(
 
   assertCanEditDetails(actor, input);
 
+  /*
+   * The checkboxes are a record of who did what on this row, so they belong to
+   * whoever holds it. Assignment itself is excluded — claiming an unassigned
+   * row is how somebody comes to hold it in the first place, and
+   * `assertCanAssign` already governs that.
+   */
+  const WORKING_FIELDS = [
+    "complete",
+    "seatGeekChecked",
+    "ticketDataChecked",
+    "audited",
+  ] as const;
+
+  if (WORKING_FIELDS.some((field) => input[field] !== undefined)) {
+    assertCanWorkOn(actor, existing.assigneeId, "tick a box on");
+  }
+
   const data: Prisma.EventUncheckedUpdateInput = {};
 
   if (input.eventTypeId !== undefined) {
@@ -499,11 +531,30 @@ export async function updateEvent(
     }
   }
 
-  // No transaction: this writes columns on a single row. It no longer moves an
-  // event between screens or deletes a stage, so there is nothing left that
-  // has to land together.
+  /*
+   * Ticking Complete stops the clock on it.
+   *
+   * "In progress" and "finished" are contradictory claims about the same row,
+   * and the one that gets left behind is always the first: people tick Complete
+   * and move on, and the indicator sits there telling the team somebody is
+   * still working on an event that was closed hours ago. Since the whole value
+   * of that indicator is that it can be trusted, the completion clears it —
+   * for everybody on the row, not just whoever ticked the box.
+   */
+  const completing = input.complete === true && existing.completedAt === null;
+
   if (Object.keys(data).length > 0) {
-    await prisma.event.update({ where: { id: eventId }, data });
+    if (completing) {
+      // A transaction here, unlike the plain column write below: the completion
+      // and the presence it invalidates have to land together, or a failure
+      // leaves an event marked finished with somebody still shown working on it.
+      await prisma.$transaction(async (tx) => {
+        await tx.event.update({ where: { id: eventId }, data });
+        await tx.presence.deleteMany({ where: { eventId } });
+      });
+    } else {
+      await prisma.event.update({ where: { id: eventId }, data });
+    }
   }
 
   // Moving an event date leaves its C1 stages pointing at the old schedule.
@@ -913,21 +964,56 @@ export async function flagEvent(
 ): Promise<DashboardEventView> {
   const existing = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, flaggedAt: true },
+    select: { id: true, flaggedAt: true, assigneeId: true },
   });
   if (!existing) throw notFound("That event no longer exists.");
 
-  await prisma.event.update({
-    where: { id: eventId },
-    data: {
-      flaggedAt: existing.flaggedAt ?? new Date(),
-      flaggedById: actor.effective.id,
-      flagReason: reason?.trim() || null,
-      // Raising a flag reopens it, so a previously resolved event does not look
-      // both flagged and resolved at once.
-      flagResolvedAt: null,
-      flagResolvedById: null,
-    },
+  assertCanWorkOn(actor, existing.assigneeId, "raise a flag on");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.event.update({
+      where: { id: eventId },
+      data: {
+        flaggedAt: existing.flaggedAt ?? new Date(),
+        flaggedById: actor.effective.id,
+        flagReason: reason?.trim() || null,
+        // Raising a flag reopens it, so a previously resolved event does not
+        // look both flagged and resolved at once — and a new flag is not
+        // already answered by the last one's fix.
+        flagResolvedAt: null,
+        flagResolvedById: null,
+        flagFixedAt: null,
+        flagFixedById: null,
+      },
+    });
+
+    /*
+     * Who hears about it depends on which direction the flag is going.
+     *
+     * A manager flagging an event is asking the person holding it to do
+     * something, so it goes to them. Anyone else flagging one is escalating,
+     * so it goes to the managers. Sending both ways would mean every flag
+     * pings everybody, and a bell that always has something in it is a bell
+     * nobody reads.
+     */
+    const recipients = canAssignOthers(actor.effective.role)
+      ? existing.assigneeId
+        ? [existing.assigneeId]
+        : // Nobody holds it, so there is nobody to ask. The other managers
+          // still want to know it was raised.
+          await managerIds(tx)
+      : await managerIds(tx);
+
+    await notify(
+      {
+        recipientIds: recipients,
+        actorId: actor.effective.id,
+        kind: "FLAG_RAISED",
+        eventId,
+        detail: reason?.trim() || null,
+      },
+      tx,
+    );
   });
 
   await recordAudit({
@@ -936,6 +1022,60 @@ export async function flagEvent(
     entityId: eventId,
     action: existing.flaggedAt ? "FLAG_UPDATED" : "FLAGGED",
     newValue: { reason },
+  });
+
+  return getEvent(eventId);
+}
+
+/**
+ * "I have dealt with this" — from whoever the flag was aimed at.
+ *
+ * Deliberately not the same act as clearing it. The person who fixes a problem
+ * is not the person who signs it off, and letting them be would mean a flag
+ * could be closed by the account that caused it. The flag stays raised and
+ * visible; this marks it ready to be checked and tells the managers so.
+ */
+export async function markFlagFixed(
+  eventId: string,
+  note: string | null,
+  actor: ActorContext,
+): Promise<DashboardEventView> {
+  const existing = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, flaggedAt: true, flagFixedAt: true, assigneeId: true },
+  });
+  if (!existing) throw notFound("That event no longer exists.");
+  if (!existing.flaggedAt) throw conflict("This event is not flagged.");
+  if (existing.flagFixedAt) {
+    throw conflict("This flag is already waiting on a manager to check it.");
+  }
+
+  assertCanWorkOn(actor, existing.assigneeId, "resolve the flag on");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.event.update({
+      where: { id: eventId },
+      data: { flagFixedAt: new Date(), flagFixedById: actor.effective.id },
+    });
+
+    await notify(
+      {
+        recipientIds: await managerIds(tx),
+        actorId: actor.effective.id,
+        kind: "FLAG_FIXED",
+        eventId,
+        detail: note?.trim() || null,
+      },
+      tx,
+    );
+  });
+
+  await recordAudit({
+    ...auditActor(actor),
+    entityType: "EVENT",
+    entityId: eventId,
+    action: "FLAG_FIXED",
+    newValue: { note: note?.trim() || null },
   });
 
   return getEvent(eventId);
@@ -954,19 +1094,45 @@ export async function resolveFlag(
 
   const existing = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, flaggedAt: true, flagReason: true },
+    select: {
+      id: true,
+      flaggedAt: true,
+      flagReason: true,
+      flaggedById: true,
+      flagFixedById: true,
+    },
   });
   if (!existing) throw notFound("That event no longer exists.");
   if (!existing.flaggedAt) throw conflict("This event is not flagged.");
 
-  await prisma.event.update({
-    where: { id: eventId },
-    data: {
-      flaggedAt: null,
-      flagReason: null,
-      flagResolvedAt: new Date(),
-      flagResolvedById: actor.effective.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.event.update({
+      where: { id: eventId },
+      data: {
+        flaggedAt: null,
+        flagReason: null,
+        flagFixedAt: null,
+        flagFixedById: null,
+        flagResolvedAt: new Date(),
+        flagResolvedById: actor.effective.id,
+      },
+    });
+
+    // Whoever raised it and whoever fixed it both want to know it is closed —
+    // the first because their escalation was answered, the second because
+    // theirs was accepted.
+    await notify(
+      {
+        recipientIds: [existing.flaggedById, existing.flagFixedById].filter(
+          (id): id is string => id !== null,
+        ),
+        actorId: actor.effective.id,
+        kind: "FLAG_CLEARED",
+        eventId,
+        detail: existing.flagReason,
+      },
+      tx,
+    );
   });
 
   await recordAudit({

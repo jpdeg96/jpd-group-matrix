@@ -99,27 +99,40 @@ model User {
   /// hard-coded name, so who is excluded can change without a code change.
   excludeFromTimeReport Boolean @default(false) @map("exclude_from_time_report")
 
+  /// Lets this person press Start on an event that is already ticked Complete.
+  ///
+  /// Off by default, because starting work on something recorded as finished is
+  /// almost always a mis-click — the honest move is to untick Complete first,
+  /// which is exactly the correction the stale filter exists to surface. It is
+  /// a per-person override rather than a global setting so the exception can be
+  /// granted to whoever genuinely needs it without loosening the rule for
+  /// everybody.
+  canStartCompleted Boolean @default(false) @map("can_start_completed")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  assignedEvents   Event[]       @relation("EventAssignee")
-  completedEvents  Event[]       @relation("EventCompletedBy")
-  seatGeekChecks   Event[]       @relation("EventSeatGeekBy")
-  ticketDataChecks Event[]       @relation("EventTicketDataBy")
-  auditedEvents    Event[]       @relation("EventAuditedBy")
-  flaggedEvents    Event[]       @relation("EventFlaggedBy")
-  resolvedFlags    Event[]       @relation("EventFlagResolvedBy")
-  assignedStages   ReviewStage[] @relation("StageAssignee")
-  completedStages  ReviewStage[] @relation("StageDoneBy")
-  notes            EventNote[]
-  presence         Presence[]
-  auditLogs        AuditLog[]
+  assignedEvents      Event[]        @relation("EventAssignee")
+  completedEvents     Event[]        @relation("EventCompletedBy")
+  seatGeekChecks      Event[]        @relation("EventSeatGeekBy")
+  ticketDataChecks    Event[]        @relation("EventTicketDataBy")
+  auditedEvents       Event[]        @relation("EventAuditedBy")
+  flaggedEvents       Event[]        @relation("EventFlaggedBy")
+  resolvedFlags       Event[]        @relation("EventFlagResolvedBy")
+  fixedFlags          Event[]        @relation("EventFlagFixedBy")
+  notifications       Notification[] @relation("NotificationRecipient")
+  causedNotifications Notification[] @relation("NotificationActor")
+  assignedStages      ReviewStage[]  @relation("StageAssignee")
+  completedStages     ReviewStage[]  @relation("StageDoneBy")
+  notes               EventNote[]
+  presence            Presence[]
+  auditLogs           AuditLog[]
 
   /// Payroll. A user may be the person behind a contractor record, and may be
   /// the manager who signs weeks off — separate relations, since they are
   /// rarely the same person and must never be conflated.
-  contractor       Contractor?      @relation("ContractorUser")
-  approvedPayroll  WeeklyApproval[] @relation("ApprovalApprover")
+  contractor      Contractor?      @relation("ContractorUser")
+  approvedPayroll WeeklyApproval[] @relation("ApprovalApprover")
 
   @@index([active, displayName])
   @@map("users")
@@ -163,9 +176,9 @@ model Event {
   assignee   User?   @relation("EventAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
   /// Ticking Complete is what promotes the event into C1.
-  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
-  completedById   String?   @map("completed_by_id") @db.Uuid
-  completedBy     User?     @relation("EventCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedById String?   @map("completed_by_id") @db.Uuid
+  completedBy   User?     @relation("EventCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
 
   seatGeekCheckedAt DateTime? @map("seatgeek_checked_at") @db.Timestamptz(6)
   seatGeekById      String?   @map("seatgeek_by_id") @db.Uuid
@@ -191,6 +204,16 @@ model Event {
   flagResolvedById String?   @map("flag_resolved_by_id") @db.Uuid
   flagResolvedBy   User?     @relation("EventFlagResolvedBy", fields: [flagResolvedById], references: [id], onDelete: SetNull)
 
+  /// "I have dealt with this" — set by whoever the flag was for, and cleared
+  /// only when a manager confirms. Deliberately distinct from
+  /// `flagResolvedAt`: the person who fixes the problem is not the person who
+  /// signs it off, and collapsing the two would let a flag be closed by the
+  /// account that caused it. The flag stays raised and visible until a manager
+  /// clears it; this only says it is ready to be checked.
+  flagFixedAt   DateTime? @map("flag_fixed_at") @db.Timestamptz(6)
+  flagFixedById String?   @map("flag_fixed_by_id") @db.Uuid
+  flagFixedBy   User?     @relation("EventFlagFixedBy", fields: [flagFixedById], references: [id], onDelete: SetNull)
+
   promotedAt  DateTime? @map("promoted_at") @db.Timestamptz(6)
   cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
 
@@ -214,9 +237,10 @@ model Event {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   /// Deleting an event removes its C1 presence and stage history with it.
-  stages   ReviewStage[]
-  notes    EventNote[]
-  presence Presence[]
+  stages        ReviewStage[]
+  notes         EventNote[]
+  presence      Presence[]
+  notifications Notification[]
 
   @@index([status, eventDate], map: "events_status_event_date_idx")
   @@index([eventDate], map: "events_event_date_idx")
@@ -239,9 +263,9 @@ model ReviewStage {
   offsetDays Int @map("offset_days") @db.SmallInt
 
   /// Effective (weekend-adjusted) due date. Overridable by hand.
-  reviewDue DateTime @map("review_due") @db.Date
+  reviewDue           DateTime @map("review_due") @db.Date
   /// True once someone has edited the date, so recalculation leaves it alone.
-  reviewDueOverridden Boolean @default(false) @map("review_due_overridden")
+  reviewDueOverridden Boolean  @default(false) @map("review_due_overridden")
 
   status StageStatus @default(PENDING)
 
@@ -284,6 +308,63 @@ model EventNote {
 
   @@index([eventId, createdAt(sort: Desc)], map: "event_notes_event_idx")
   @@map("event_notes")
+}
+
+/// Why somebody is being told about something.
+enum NotificationKind {
+  /// A flag was raised on an event this person is accountable for.
+  FLAG_RAISED
+  /// Whoever the flag was for says they have dealt with it; a manager should check.
+  FLAG_FIXED
+  /// A manager confirmed the fix and cleared the flag.
+  FLAG_CLEARED
+  /// Somebody wrote this person's name into a note.
+  MENTIONED
+
+  @@map("notification_kind")
+}
+
+/// One thing one person needs to know about.
+///
+/// Rows rather than a derived query, deliberately. "What needs my attention"
+/// cannot be computed from event state alone: a flag raised, seen and moved on
+/// from looks identical in the events table to one raised a minute ago, and
+/// mentions leave no trace on the event at all. Read state belongs to the
+/// person, so it has to be stored per person.
+///
+/// Never a channel. This is what the bell shows; it does not send email or post
+/// to Discord, and nothing here should grow into a delivery mechanism without
+/// that being a deliberate decision.
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Who is being told.
+  recipientId String @map("recipient_id") @db.Uuid
+  recipient   User   @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  /// Who caused it. NULL when the account has since been deleted.
+  actorId String? @map("actor_id") @db.Uuid
+  actor   User?   @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  kind NotificationKind
+
+  /// The event this is about. Cascades: a notification pointing at a deleted
+  /// event is a dead link, not history worth keeping.
+  eventId String @map("event_id") @db.Uuid
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  /// The flag reason or the note text, captured at the time. Stored rather than
+  /// joined because the point of the message is what it said *then* — an edited
+  /// note should not silently rewrite the notification that quoted it.
+  detail String?
+
+  readAt DateTime? @map("read_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([recipientId, readAt, createdAt(sort: Desc)], map: "notifications_recipient_idx")
+  @@index([eventId], map: "notifications_event_idx")
+  @@map("notifications")
 }
 
 /// "I am working on this right now."
@@ -375,8 +456,8 @@ model Settings {
   /// There is no default and never a fallback: these drive purchasing
   /// decisions, so an unset rate must stop the calculator rather than let it
   /// answer with a number nobody chose. A CHECK keeps them in [0, 1).
-  phantomTier1Rate    Decimal? @map("phantom_tier_1_rate") @db.Decimal(6, 4)
-  phantomStubHubRate  Decimal? @map("phantom_stubhub_rate") @db.Decimal(6, 4)
+  phantomTier1Rate   Decimal? @map("phantom_tier_1_rate") @db.Decimal(6, 4)
+  phantomStubHubRate Decimal? @map("phantom_stubhub_rate") @db.Decimal(6, 4)
 
   /// Post releases, payroll runs and Clockify outages to a Discord channel.
   /// The webhook URL is itself the credential and lives in
@@ -392,8 +473,8 @@ model Settings {
   /// Last known Clockify reachability. NULL until first probed. Kept so that
   /// only *changes* are announced — repeating "still down" hourly is how a
   /// channel gets muted.
-  clockifyHealthy          Boolean?  @map("clockify_healthy")
-  clockifyHealthCheckedAt  DateTime? @map("clockify_health_checked_at") @db.Timestamptz(6)
+  clockifyHealthy         Boolean?  @map("clockify_healthy")
+  clockifyHealthCheckedAt DateTime? @map("clockify_health_checked_at") @db.Timestamptz(6)
 
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   updatedById String?  @map("updated_by_id") @db.Uuid
@@ -426,9 +507,15 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/* -------------------------------------------------------------------------- */
-/* Payroll                                                                    */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ */
+/**
+ * Payroll
+ */
+/**
+ * --------------------------------------------------------------------------
+ */
 
 enum PayType {
   /// Paid a fixed amount per week. Hours are recorded but do not drive pay.
@@ -519,7 +606,7 @@ model PayrollPeriod {
   /// Sunday. DATE, never a timestamp — a pay week is a calendar fact.
   periodStart DateTime @unique @map("period_start") @db.Date
   /// Saturday.
-  periodEnd DateTime @map("period_end") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
 
   /// The Friday after `periodEnd`. Stored rather than derived, so a historical
   /// record keeps the date people were actually told.

@@ -152,8 +152,16 @@ export function TeamPresenceWidget() {
                 role="menuitem"
                 onClick={() => jumpTo(entry)}
                 title={`Open this event on the ${entry.context === "C1" ? "C1" : "Dashboard"}`}
-                className="flex w-full items-start justify-between gap-2 rounded px-2 py-1.5 text-left transition hover:brightness-95"
-                style={{ background: "transparent" }}
+                /*
+                 * An outline rather than a brightness shift.
+                 *
+                 * Entries here are two lines of small text stacked tightly, and
+                 * a background tint on one of them is genuinely ambiguous about
+                 * where it stops — you cannot tell which row you are about to
+                 * click, which is the whole question a hover state answers. A
+                 * ring draws the boundary.
+                 */
+                className="jpd-hover-ring flex w-full items-start justify-between gap-2 rounded px-2 py-1.5 text-left"
               >
                 <span className="min-w-0 flex-1">
                   <UserChip

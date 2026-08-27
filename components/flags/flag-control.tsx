@@ -19,23 +19,34 @@ export function FlagControl({
   flaggedAt,
   flaggedByName,
   flagReason,
+  flagFixedAt,
+  flagFixedByName,
   canResolve,
+  canWork,
   onChanged,
 }: {
   eventId: string;
   flaggedAt: string | null;
   flaggedByName: string | null;
   flagReason: string | null;
+  /** Set once whoever the flag was for says they have dealt with it. */
+  flagFixedAt: string | null;
+  flagFixedByName: string | null;
   canResolve: boolean;
+  /** Whether this person may act on this row at all — assignee, or a manager. */
+  canWork: boolean;
   onChanged: () => void;
 }) {
   const toast = useToast();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [detailOpen, setDetailOpen] = React.useState(false);
+  const [fixOpen, setFixOpen] = React.useState(false);
   const [reason, setReason] = React.useState("");
+  const [fixNote, setFixNote] = React.useState("");
   const [pending, setPending] = React.useState(false);
 
   const flagged = flaggedAt !== null;
+  const fixed = flagFixedAt !== null;
 
   async function raise() {
     setPending(true);
@@ -50,6 +61,29 @@ export function FlagControl({
         "Could not raise the flag.",
         error instanceof ApiRequestError ? error.message : undefined,
       );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  /** "I have dealt with this" — hands it back to a manager to check. */
+  async function markFixed(): Promise<boolean> {
+    setPending(true);
+    try {
+      await api.post(`/api/events/${eventId}/flag/fixed`, {
+        reason: fixNote.trim() || null,
+      });
+      toast.success("Marked as dealt with. A manager will check and clear it.");
+      setFixOpen(false);
+      setFixNote("");
+      onChanged();
+      return true;
+    } catch (error) {
+      toast.error(
+        "Could not mark that as dealt with.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+      return false;
     } finally {
       setPending(false);
     }
@@ -87,11 +121,19 @@ export function FlagControl({
           title="Open the flag"
           className="w-full rounded border border-transparent px-1 py-0.5 text-left transition hover:border-[var(--line-strong)] hover:bg-[var(--surface-raised)]"
         >
+          {/* Two states, not one. "Dealt with" still shows the flag raised —
+              it is only closed when a manager says so — but it has to look
+              different, or the person who fixed it has no way to tell their
+              hand-back registered. */}
           <span
             className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-semibold"
-            style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
+            style={
+              fixed
+                ? { background: "var(--warn-soft)", color: "var(--warn)" }
+                : { background: "var(--danger-soft)", color: "var(--danger)" }
+            }
           >
-            ⚑ Flagged
+            {fixed ? "⚑ Awaiting check" : "⚑ Flagged"}
           </span>
 
           {flagReason ? (
@@ -113,6 +155,20 @@ export function FlagControl({
             style={{ color: "var(--ink-subtle)" }}
           >
             {pending ? "Clearing…" : "Clear flag"}
+          </button>
+        ) : fixed ? (
+          <span className="text-[10px]" style={{ color: "var(--ink-subtle)" }}>
+            manager to confirm
+          </span>
+        ) : canWork ? (
+          <button
+            type="button"
+            onClick={() => setFixOpen(true)}
+            disabled={pending}
+            className="text-[10.5px] underline-offset-2 hover:underline disabled:opacity-50"
+            style={{ color: "var(--ink-subtle)" }}
+          >
+            Mark as dealt with
           </button>
         ) : (
           <span className="text-[10px]" style={{ color: "var(--ink-subtle)" }}>
@@ -163,11 +219,55 @@ export function FlagControl({
               No reason was given.
             </p>
           )}
+          {fixed ? (
+            <p
+              className="mt-2 rounded border px-2 py-1.5 text-[11.5px]"
+              style={{ borderColor: "var(--warn)", background: "var(--warn-soft)", color: "var(--warn)" }}
+            >
+              {flagFixedByName ?? "Somebody"} marked this as dealt with
+              {flagFixedAt ? ` on ${formatBusinessTimestamp(flagFixedAt)}` : ""}.
+              It stays flagged until a manager checks and clears it.
+            </p>
+          ) : null}
+
           {!canResolve ? (
             <p className="mt-2 text-[11px]" style={{ color: "var(--ink-subtle)" }}>
               Only a manager or administrator can clear this.
+              {canWork && !fixed
+                ? " Mark it as dealt with once you have sorted it and they will be told."
+                : ""}
             </p>
           ) : null}
+        </Dialog>
+
+        <Dialog
+          open={fixOpen}
+          onClose={() => setFixOpen(false)}
+          title="Mark as dealt with"
+          description="This tells the managers it is ready to check. The flag stays raised until one of them clears it."
+          width="sm"
+          footer={
+            <>
+              <Button onClick={() => setFixOpen(false)} disabled={pending}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={pending} onClick={markFixed}>
+                Mark as dealt with
+              </Button>
+            </>
+          }
+        >
+          <Textarea
+            rows={3}
+            value={fixNote}
+            onChange={(event) => setFixNote(event.target.value)}
+            placeholder="What did you do about it? (optional)"
+            autoFocus
+          />
+          <p className="mt-1.5 text-[11px]" style={{ color: "var(--ink-subtle)" }}>
+            Whatever you write here goes to the manager with the notification,
+            which is usually what saves them opening the event to find out.
+          </p>
         </Dialog>
       </div>
     );
@@ -178,8 +278,13 @@ export function FlagControl({
       <button
         type="button"
         onClick={() => setDialogOpen(true)}
-        title="Ask a manager or administrator to look at this event"
-        className="rounded border px-1.5 py-0.5 text-[11px] transition hover:brightness-95"
+        disabled={!canWork}
+        title={
+          canWork
+            ? "Ask a manager or administrator to look at this event"
+            : "You can only flag an event assigned to you."
+        }
+        className="rounded border px-1.5 py-0.5 text-[11px] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
         style={{ borderColor: "var(--line-strong)", color: "var(--ink-subtle)" }}
       >
         ⚑ Flag

@@ -309,6 +309,7 @@ export const updateUserSchema = z
     password: z.string().min(10).max(200).optional(),
     clockifyUserId: z.string().trim().max(64).nullable().optional(),
     excludeFromTimeReport: z.boolean().optional(),
+    canStartCompleted: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "No changes were supplied.",

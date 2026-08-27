@@ -66,6 +66,36 @@ export function assertCanAssign(
 }
 
 /**
+ * Guards touching the working state of somebody else's event.
+ *
+ * The checkboxes, the flag, the notes and the Start button are all records of
+ * work done on a specific row, and a row has exactly one person accountable for
+ * it. Someone else ticking SeatGeek says that person checked SeatGeek, which is
+ * either untrue or invisible — either way the row stops meaning what it says.
+ *
+ * Unassigned rows stay open to everybody. Locking those would leave work that
+ * literally nobody may touch until a manager intervenes, which is worse than
+ * the problem being solved: claiming the row is one click away and is the
+ * honest way to start.
+ *
+ * `verb` completes the sentence "You can only … an event assigned to you", so
+ * the refusal names the thing that was actually refused.
+ */
+export function assertCanWorkOn(
+  actor: ActorContext,
+  assigneeId: string | null,
+  verb: string,
+): void {
+  if (canAssignOthers(actor.effective.role)) return;
+  if (assigneeId === null) return;
+  if (assigneeId === actor.effective.id) return;
+
+  throw forbidden(
+    `You can only ${verb} an event assigned to you. Ask a manager to reassign it if it should be yours.`,
+  );
+}
+
+/**
  * Guards marking yourself as working on an event.
  *
  * A regular user may only start on work assigned to them. "In progress" is a

@@ -119,6 +119,17 @@ export function C1View({
 
   const presence = usePresence("C1", currentUser.id);
 
+  /**
+   * Whether this person may touch the working state of a row. Same rule as the
+   * Dashboard, and the same reasoning: the stage tick, the flag and the notes
+   * all record who did the work, so they belong to whoever holds the event.
+   */
+  const mayWorkOn = React.useCallback(
+    (assigneeId: string | null) =>
+      canAssign || assigneeId === null || assigneeId === currentUser.id,
+    [canAssign, currentUser.id],
+  );
+
   // Somebody else ticked a stage, or an event arrived from the Dashboard.
   useLiveRefresh(presence.revision, pending.size > 0);
 
@@ -668,6 +679,8 @@ export function C1View({
                         latest={notes[row.eventId] ?? null}
                         currentUserId={currentUser.id}
                         isAdmin={currentUser.role === "ADMIN"}
+                        canWrite={mayWorkOn(row.assigneeId)}
+                        mentionable={activeUsers}
                         onCountChange={(eventId, delta) =>
                           setNoteCounts((current) => ({
                             ...current,
@@ -696,7 +709,7 @@ export function C1View({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === row.eventId}
-                        canStart={canAssign || row.assigneeId === currentUser.id}
+                        canStart={mayWorkOn(row.assigneeId)}
                         assigned={row.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
@@ -756,7 +769,10 @@ export function C1View({
                         flaggedAt={row.flaggedAt}
                         flaggedByName={row.flaggedByName}
                         flagReason={row.flagReason}
+                        flagFixedAt={row.flagFixedAt}
+                        flagFixedByName={row.flagFixedByName}
                         canResolve={canAssign}
+                        canWork={mayWorkOn(row.assigneeId)}
                         onChanged={() => router.refresh()}
                       />
                     </Td>
@@ -765,7 +781,7 @@ export function C1View({
                       <Checkbox
                         label={`Mark ${reviewStageLabel(row.offsetDays)} done`}
                         checked={false}
-                        disabled={isPending(row.stageId, "done")}
+                        disabled={isPending(row.stageId, "done") || !mayWorkOn(row.assigneeId)}
                         pending={isPending(row.stageId, "done")}
                         onChange={(event) => {
                           if (!event.target.checked) return;

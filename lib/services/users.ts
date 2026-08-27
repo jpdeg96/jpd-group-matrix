@@ -42,6 +42,7 @@ export interface ManagedUser extends UserOption {
   assignedStages: number;
   clockifyUserId: string | null;
   excludeFromTimeReport: boolean;
+  canStartCompleted: boolean;
 }
 
 /**
@@ -88,6 +89,7 @@ export async function listUsers(): Promise<ManagedUser[]> {
       passwordHash: true,
       clockifyUserId: true,
       excludeFromTimeReport: true,
+      canStartCompleted: true,
       _count: { select: { assignedEvents: true, assignedStages: true } },
     },
   });
@@ -105,6 +107,7 @@ export async function listUsers(): Promise<ManagedUser[]> {
     assignedStages: user._count.assignedStages,
     clockifyUserId: user.clockifyUserId,
     excludeFromTimeReport: user.excludeFromTimeReport,
+    canStartCompleted: user.canStartCompleted,
   }));
 }
 
@@ -200,6 +203,7 @@ export interface UpdateUserInput {
   /** Clockify user id, or `null` to unlink. */
   clockifyUserId?: string | null;
   excludeFromTimeReport?: boolean;
+  canStartCompleted?: boolean;
 }
 
 export async function updateUser(
@@ -260,6 +264,9 @@ export async function updateUser(
           : {}),
         ...(input.excludeFromTimeReport !== undefined
           ? { excludeFromTimeReport: input.excludeFromTimeReport }
+          : {}),
+        ...(input.canStartCompleted !== undefined
+          ? { canStartCompleted: input.canStartCompleted }
           : {}),
         ...(input.password
           ? { passwordHash: await bcrypt.hash(input.password, BCRYPT_ROUNDS) }

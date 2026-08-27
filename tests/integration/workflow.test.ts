@@ -22,6 +22,7 @@ import {
   getCompletionHistory,
   getDashboardStats,
   listDashboardEvents,
+  markFlagFixed,
   resolveFlag,
   updateEvent,
   sendToC1,
@@ -34,6 +35,7 @@ import {
 } from "@/lib/services/stages";
 import { addNote, listNotes } from "@/lib/services/notes";
 import { applyBulkUpdate, planBulkUpdate } from "@/lib/services/bulk-events";
+import { listNotifications, markRead } from "@/lib/services/notifications";
 import {
   listPresence,
   listTeamPresence,
@@ -942,6 +944,264 @@ describe("promotion into C1", () => {
       await expect(
         updateEvent(event.id, { assigneeId: inactive.id }, manager),
       ).rejects.toThrow(/inactive/i);
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  describe("who may work on a row", () => {
+    it("stops a regular user ticking a box on somebody else's event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+
+      await expect(
+        updateEvent(event.id, { seatGeekChecked: true }, worker),
+      ).rejects.toThrow(/only tick a box on an event assigned to you/i);
+    });
+
+    it("leaves unassigned work open to everybody", async () => {
+      // Otherwise a row nobody has claimed is a row nobody may touch, which is
+      // worse than the problem being solved.
+      const event = await makeEvent(30);
+      const result = await updateEvent(event.id, { seatGeekChecked: true }, worker);
+      expect(result.event.seatGeekCheckedAt).not.toBeNull();
+    });
+
+    it("lets the assignee tick their own", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      const result = await updateEvent(event.id, { complete: true }, worker);
+      expect(result.event.completedAt).not.toBeNull();
+    });
+
+    it("lets a manager tick anything", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      const result = await updateEvent(event.id, { audited: true }, manager);
+      expect(result.event.auditedAt).not.toBeNull();
+    });
+
+    it("stops a regular user noting or flagging somebody else's event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+
+      await expect(addNote(event.id, "Mine now", worker)).rejects.toThrow(
+        /assigned to you/i,
+      );
+      await expect(flagEvent(event.id, "Look", worker)).rejects.toThrow(
+        /assigned to you/i,
+      );
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  describe("completion and in-progress", () => {
+    it("clears everyone's in-progress badge when the event is completed", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await startPresence(event.id, "DASHBOARD", worker);
+      await startPresence(event.id, "DASHBOARD", manager);
+
+      await updateEvent(event.id, { complete: true }, worker);
+
+      // Both, not just whoever ticked the box: "finished" and "in progress" are
+      // contradictory claims about the same row whoever is making them.
+      expect(await prisma.presence.count({ where: { eventId: event.id } })).toBe(0);
+    });
+
+    it("refuses to start an event that is ticked Complete", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await updateEvent(event.id, { complete: true }, worker);
+
+      await expect(
+        startPresence(event.id, "DASHBOARD", worker),
+      ).rejects.toThrow(/ticked Complete/i);
+    });
+
+    it("allows starting a completed event for somebody granted the override", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await updateEvent(event.id, { complete: true }, worker);
+
+      await prisma.user.update({
+        where: { id: worker.effective.id },
+        data: { canStartCompleted: true },
+      });
+
+      await startPresence(event.id, "DASHBOARD", worker);
+      const live = await listPresence("DASHBOARD");
+      expect(live.get(event.id)).toHaveLength(1);
+    });
+
+    it("lets somebody start again once Complete is unticked", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await updateEvent(event.id, { complete: true }, worker);
+      await updateEvent(event.id, { complete: false }, worker);
+
+      await startPresence(event.id, "DASHBOARD", worker);
+      expect((await listPresence("DASHBOARD")).get(event.id)).toHaveLength(1);
+    });
+  });
+
+  /* ---------------------------------------------------------------------- */
+
+  describe("notifications", () => {
+    const bellFor = (actorContext: ActorContext) => listNotifications(actorContext);
+
+    it("tells the assignee when a manager flags their event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+
+      await flagEvent(event.id, "Numbers do not match", manager);
+
+      const bell = await bellFor(worker);
+      expect(bell.unreadCount).toBe(1);
+      expect(bell.notifications[0]).toMatchObject({
+        kind: "FLAG_RAISED",
+        eventId: event.id,
+        detail: "Numbers do not match",
+        actorName: manager.effective.displayName,
+      });
+    });
+
+    it("tells the managers when a regular user flags an event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      await flagEvent(event.id, "Escalating this", worker);
+
+      expect((await bellFor(manager)).unreadCount).toBe(1);
+      expect((await bellFor(admin)).unreadCount).toBe(1);
+      // Never told about their own action.
+      expect((await bellFor(worker)).unreadCount).toBe(0);
+    });
+
+    it("tells the managers when the assignee says a flag is dealt with", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "Please fix", manager);
+      await markRead(manager, "ALL");
+
+      await markFlagFixed(event.id, "Re-pulled the file", worker);
+
+      const bell = await bellFor(manager);
+      expect(bell.notifications[0]).toMatchObject({
+        kind: "FLAG_FIXED",
+        detail: "Re-pulled the file",
+      });
+
+      // The flag is NOT cleared — it is waiting on a manager to confirm.
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.flaggedAt).not.toBeNull();
+      expect(stored.flagFixedAt).not.toBeNull();
+    });
+
+    it("tells whoever raised and whoever fixed it when a manager clears the flag", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "Please fix", manager);
+      await markFlagFixed(event.id, "Done", worker);
+
+      await resolveFlag(event.id, admin);
+
+      const workerBell = await bellFor(worker);
+      expect(workerBell.notifications[0]?.kind).toBe("FLAG_CLEARED");
+      const managerBell = await bellFor(manager);
+      expect(managerBell.notifications[0]?.kind).toBe("FLAG_CLEARED");
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.flaggedAt).toBeNull();
+      expect(stored.flagFixedAt).toBeNull();
+    });
+
+    it("refuses a second hand-back while one is already waiting", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "Please fix", manager);
+      await markFlagFixed(event.id, "Done", worker);
+
+      await expect(markFlagFixed(event.id, "Done again", worker)).rejects.toThrow(
+        /already waiting/i,
+      );
+    });
+
+    it("clears the fixed state when a flag is raised again", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "First", manager);
+      await markFlagFixed(event.id, "Done", worker);
+
+      // A new problem is not already answered by the last one's fix.
+      await flagEvent(event.id, "Second, different problem", manager);
+
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.flagFixedAt).toBeNull();
+    });
+
+    it("notifies somebody mentioned in a note", async () => {
+      const event = await makeEvent(30);
+
+      await addNote(
+        event.id,
+        `@${manager.effective.displayName} does this look right to you?`,
+        worker,
+      );
+
+      const bell = await bellFor(manager);
+      expect(bell.notifications[0]).toMatchObject({
+        kind: "MENTIONED",
+        eventId: event.id,
+      });
+    });
+
+    it("does not notify for a name that is not written as a mention", async () => {
+      const event = await makeEvent(30);
+      await addNote(event.id, `Spoke to ${manager.effective.displayName} about it`, worker);
+      expect((await bellFor(manager)).unreadCount).toBe(0);
+    });
+
+    it("marks one notification read without touching the others", async () => {
+      const first = await makeEvent(30);
+      const second = await makeEvent(31);
+      await updateEvent(first.id, { assigneeId: worker.effective.id }, manager);
+      await updateEvent(second.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(first.id, "One", manager);
+      await flagEvent(second.id, "Two", manager);
+
+      const before = await bellFor(worker);
+      expect(before.unreadCount).toBe(2);
+
+      await markRead(worker, [before.notifications[0]!.id]);
+      expect((await bellFor(worker)).unreadCount).toBe(1);
+    });
+
+    it("cannot mark somebody else's notification read", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "Yours", manager);
+
+      const workerBell = await bellFor(worker);
+      const count = await markRead(manager, [workerBell.notifications[0]!.id]);
+
+      expect(count).toBe(0);
+      expect((await bellFor(worker)).unreadCount).toBe(1);
+    });
+
+    it("takes its notifications with it when the event is deleted", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, manager);
+      await flagEvent(event.id, "Look", manager);
+      expect((await bellFor(worker)).unreadCount).toBe(1);
+
+      await deleteEvent(event.id, admin);
+
+      // A notification pointing at a deleted event is a dead link.
+      expect((await bellFor(worker)).unreadCount).toBe(0);
     });
   });
 
