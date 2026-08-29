@@ -253,19 +253,27 @@ export async function startPresence(
   assertCanStartWork(actor, event.assigneeId);
 
   /*
-   * Starting work on something already recorded as finished.
+   * Starting dashboard work on something already recorded as finished.
    *
    * Almost always a mis-click, and the honest correction is to untick Complete
    * first — which is exactly the case the stale filter exists to surface, and
    * which unticking no longer punishes. Refusing here keeps "complete" and "in
    * progress" from being true of the same row at once.
    *
+   * DASHBOARD only, and that qualification is the whole point. Every event in
+   * C1 carries a completion — being ticked Complete is what allows it to be
+   * sent there — so applying this rule to C1 refused Start on every row in it.
+   * The two screens mean different things by "working on this": the Dashboard
+   * means the preparation, C1 means the review that follows it, and a finished
+   * preparation is the precondition for the second rather than a contradiction
+   * of it.
+   *
    * The override is per person rather than a global setting, so the exception
    * can be granted to whoever genuinely needs it without loosening the rule for
    * everybody. It is read fresh rather than taken from the session, because a
    * permission revoked five minutes ago must not survive in somebody's JWT.
    */
-  if (event.completedAt !== null) {
+  if (context === "DASHBOARD" && event.completedAt !== null) {
     const permitted = await prisma.user.findUnique({
       where: { id: actor.effective.id },
       select: { canStartCompleted: true },

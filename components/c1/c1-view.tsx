@@ -43,6 +43,11 @@ import {
   UNASSIGNED_LABEL,
 } from "@/lib/domain/constants";
 import { BulkDueDialog } from "./bulk-due-dialog";
+import {
+  PAGE_SIZES,
+  pageSizeLabel,
+  useTablePreferences,
+} from "@/components/dashboard/use-table-preferences";
 import type { C1RowView } from "@/lib/services/stages";
 import type { UserOption } from "@/lib/services/users";
 
@@ -106,6 +111,9 @@ export function C1View({
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [bulkOpen, setBulkOpen] = React.useState(false);
+
+  const { pageSize, stripeRows, update: setPreference } = useTablePreferences("c1");
+  const [page, setPage] = React.useState(0);
 
   React.useEffect(() => {
     setRows(initialRows);
@@ -179,6 +187,33 @@ export function C1View({
     rows, search, typeFilter, stageFilter, assigneeFilter, mineOnly, flaggedOnly,
     rangeFilter, today, currentUser.id,
   ]);
+
+  /* ---------------------------------------------------------------------- */
+  /* Paging                                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const pageCount =
+    pageSize === "ALL" ? 1 : Math.max(1, Math.ceil(visible.length / pageSize));
+
+  // Narrowing a filter while on a later page must not land on an empty table
+  // that reads as "no results" when the rows are a few pages back.
+  React.useEffect(() => {
+    setPage((current) => Math.min(current, pageCount - 1));
+  }, [pageCount]);
+
+  const paged = React.useMemo(() => {
+    if (pageSize === "ALL") return visible;
+    const start = page * pageSize;
+    return visible.slice(start, start + pageSize);
+  }, [visible, page, pageSize]);
+
+  // Somebody sent to a specific row must not land on the page that does not
+  // contain it. Page size stays as they left it; only the page moves.
+  React.useEffect(() => {
+    if (!focusId || pageSize === "ALL") return;
+    const index = visible.findIndex((row) => row.eventId === focusId);
+    if (index >= 0) setPage(Math.floor(index / pageSize));
+  }, [focusId, visible, pageSize]);
 
   const isPending = (id: string, field: Field) => pending.has(`${id}:${field}`);
 
@@ -469,7 +504,8 @@ export function C1View({
                   <Th className="w-[2.5rem]">
                     <input
                       type="checkbox"
-                      aria-label="Select all shown"
+                      aria-label="Select every row matching the filters"
+                      title="Select every row matching the filters, across all pages"
                       checked={visible.length > 0 && selected.size === visible.length}
                       onChange={(event) =>
                         setSelected(
@@ -498,7 +534,7 @@ export function C1View({
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => {
+              {paged.map((row, rowIndex) => {
                 const others = (presence.byEvent.get(row.eventId) ?? []).filter(
                   (entry) => entry.userId !== currentUser.id,
                 );
@@ -518,7 +554,12 @@ export function C1View({
                       "border-t align-top transition-colors",
                       working || others.length > 0 ? "jpd-live-row" : "hover:brightness-[0.99]",
                     )}
-                    style={{ borderColor: "var(--line)" }}
+                    style={{
+                      borderColor: "var(--line)",
+                      ...(stripeRows && rowIndex % 2 === 1 && !working && others.length === 0
+                        ? { backgroundColor: "var(--canvas)" }
+                        : {}),
+                    }}
                   >
                     {canEditDueDates ? (
                       <Td>
@@ -796,6 +837,77 @@ export function C1View({
           </table>
         </div>
       )}
+
+      {visible.length > 0 ? (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t px-5 py-2"
+          style={{ borderColor: "var(--line)" }}
+        >
+          <span className="text-[11.5px] tabular-nums" style={{ color: "var(--ink-muted)" }}>
+            {pageSize === "ALL"
+              ? `All ${visible.length}`
+              : `${page * pageSize + 1}–${Math.min((page + 1) * pageSize, visible.length)} of ${visible.length}`}
+          </span>
+
+          {pageCount > 1 ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((value) => Math.max(0, value - 1))}
+              >
+                Previous
+              </Button>
+              <span
+                className="px-1 text-[11.5px] tabular-nums"
+                style={{ color: "var(--ink-muted)" }}
+              >
+                Page {page + 1} of {pageCount}
+              </span>
+              <Button
+                size="sm"
+                disabled={page >= pageCount - 1}
+                onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          ) : null}
+
+          <label className="ml-auto flex items-center gap-1.5 text-[11.5px]"
+                 style={{ color: "var(--ink-muted)" }}>
+            Rows
+            <Select
+              aria-label="Rows per page"
+              className="h-7 py-0 text-[11.5px]"
+              value={String(pageSize)}
+              onChange={(event) => {
+                const raw = event.target.value;
+                setPreference({ pageSize: raw === "ALL" ? "ALL" : (Number(raw) as 50 | 100 | 250) });
+                setPage(0);
+              }}
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={String(size)} value={String(size)}>
+                  {pageSizeLabel(size)}
+                </option>
+              ))}
+            </Select>
+          </label>
+
+          <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px]"
+                 style={{ color: "var(--ink-muted)" }}>
+            <input
+              type="checkbox"
+              checked={stripeRows}
+              onChange={(event) => setPreference({ stripeRows: event.target.checked })}
+              style={{ accentColor: "var(--accent)" }}
+              className="h-3.5 w-3.5"
+            />
+            Shade alternate rows
+          </label>
+        </div>
+      ) : null}
 
       {canEditDueDates ? (
         <BulkDueDialog

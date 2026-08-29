@@ -580,6 +580,33 @@ describe("promotion into C1", () => {
       expect(stats.total).toBe(1);
       expect(stats.completed).toBe(1);
     });
+
+    it("counts an unticked event as outstanding again, without pulling it out of C1", async () => {
+      /*
+       * The correction case, from the counter's point of view.
+       *
+       * "Open" follows the Complete tick rather than the status, because
+       * unticking deliberately leaves the event in C1 — the review work must
+       * survive — and a status-based count went on calling it finished after
+       * the person holding it had said otherwise.
+       */
+      const event = await makeEvent(30);
+      await completeAndSend(event.id, manager);
+      expect((await getDashboardStats(manager.effective.id)).total).toBe(0);
+
+      await updateEvent(event.id, { complete: false }, manager);
+
+      const stats = await getDashboardStats(manager.effective.id);
+      expect(stats.total).toBe(1);
+
+      // And it is still in C1 with every stage intact — the review work is
+      // exactly what unticking must not cost.
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.status).toBe("C1");
+      const stages = await stagesFor(event.id);
+      expect(stages.length).toBeGreaterThan(0);
+      expect(stages.every((stage) => stage.status === "PENDING")).toBe(true);
+    });
   });
 
   describe("completion history", () => {
@@ -1010,6 +1037,20 @@ describe("promotion into C1", () => {
       // Both, not just whoever ticked the box: "finished" and "in progress" are
       // contradictory claims about the same row whoever is making them.
       expect(await prisma.presence.count({ where: { eventId: event.id } })).toBe(0);
+    });
+
+    it("still allows Start in C1 on an event that is ticked Complete", async () => {
+      // Every event in C1 carries a completion — that is what allows it to be
+      // sent there — so the Dashboard's "do not start finished work" rule must
+      // not reach this screen, or it refuses every row in it.
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await completeAndSend(event.id, manager);
+
+      await startPresence(event.id, "C1", worker);
+
+      const live = await listPresence("C1");
+      expect(live.get(event.id)).toHaveLength(1);
     });
 
     it("refuses to start an event that is ticked Complete", async () => {

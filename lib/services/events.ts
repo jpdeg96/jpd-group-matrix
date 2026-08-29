@@ -1193,12 +1193,25 @@ async function assertAssignable(
 export async function getDashboardStats(userId: string) {
   const today = await businessToday();
 
-  // "Open" work is what has not yet been sent to C1, on an event that has not
-  // happened yet. Promoted and past events remain in the database but must not
-  // inflate the outstanding-work counters, or the numbers stop meaning "things
-  // still to do".
+  /*
+   * "Open" is work whose Complete box is not ticked, on an event that has not
+   * happened yet.
+   *
+   * Keyed on the completion rather than on the status, and the distinction is
+   * the whole point. Unticking Complete deliberately leaves an event in C1 —
+   * the review work already done on it must not be thrown away — so a
+   * status-based definition left the row counted as finished when the person
+   * who unticked it had just said it is not. The tick is what people are
+   * looking at and the tick is what this now follows.
+   *
+   * An event can therefore be outstanding here *and* progressing through C1 at
+   * the same time. That is not a contradiction: the Dashboard tracks the
+   * preparation, C1 tracks the review of it, and correcting the first does not
+   * undo the second.
+   */
   const open = {
-    status: "DASHBOARD",
+    completedAt: null,
+    status: { not: "CANCELLED" },
     archivedAt: null,
     eventDate: { gte: dbDateFromPlainDate(today) },
   } as const;

@@ -208,13 +208,21 @@ export function DashboardView({
     const now = new Date();
 
     const filtered = events.filter((event) => {
-      // Promoted events stay on the dashboard as the permanent record, but are
-      // hidden by default so the screen shows outstanding work.
-      // ALL deliberately applies no status filter at all — it is the one scope
-      // that shows outstanding and finished work side by side.
-      const promoted = event.status === "C1" || event.status === "COMPLETED";
-      if (scope === "OPEN" && promoted) return false;
-      if (scope === "COMPLETED" && !promoted) return false;
+      /*
+       * Open and Completed follow the Complete tick, not the status.
+       *
+       * Unticking Complete deliberately leaves the event in C1, so a
+       * status-based split kept it filed under Completed when the person who
+       * unticked it had just said otherwise — and there was no way to get it
+       * back onto the board. An event can be outstanding here while its review
+       * continues in C1; the Dashboard tracks the preparation and C1 tracks the
+       * review of it.
+       *
+       * ALL applies no filter at all — the one scope showing both together.
+       */
+      const finished = event.completedAt !== null;
+      if (scope === "OPEN" && finished) return false;
+      if (scope === "COMPLETED" && !finished) return false;
       if (scope === "STALE" && !isStaleCompletion(event.completedOn, today, stats.staleDays)) {
         return false;
       }
@@ -572,7 +580,9 @@ export function DashboardView({
     setPendingWork((current) => (current === next ? null : next));
   }
 
-  const openCount = events.filter((event) => event.status === "DASHBOARD").length;
+  // The chip counts have to use the same predicate as the filter behind them,
+  // or pressing one lands on a different number from the one you pressed.
+  const openCount = events.filter((event) => event.completedAt === null).length;
   const awaitingC1Count = events.filter(
     (event) => event.completedAt !== null && event.status === "DASHBOARD",
   ).length;
@@ -882,8 +892,12 @@ export function DashboardView({
                   <Th className="w-[2.5rem]">
                     <input
                       type="checkbox"
-                      aria-label="Select every event shown"
-                      title="Select every event shown"
+                      aria-label="Select every event matching the filters"
+                      // Everything the filters match, not just this page. A
+                      // 250-row selection built page by page would be nobody's
+                      // idea of a bulk action — and the review screen names
+                      // every event before anything is applied.
+                      title="Select every event matching the filters, across all pages"
                       // Indeterminate when the selection is a strict subset, so
                       // "some are selected" never looks like "none are".
                       ref={(node) => {
@@ -945,10 +959,14 @@ export function DashboardView({
                     )}
                     style={{
                       borderColor: "var(--line)",
-                      // Promoted rows are dimmed so that, when Completed is
+                      // Finished rows are dimmed so that, when Completed is
                       // shown alongside open work, the two are distinguishable
-                      // without reading the status.
-                      opacity: promoted && scope !== "COMPLETED" ? 0.72 : 1,
+                      // without reading anything. Keyed on the tick rather than
+                      // on being in C1: an event that was unticked is live work
+                      // again and must not look retired just because its review
+                      // is still running.
+                      opacity:
+                        event.completedAt !== null && scope !== "COMPLETED" ? 0.72 : 1,
                       /*
                        * Optional banding, off by default.
                        *

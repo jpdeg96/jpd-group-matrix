@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-08-27-c1-paging-and-open-fix",
+    date: "Aug 27, 2026",
+    kind: "fixed",
+    title: "Start works in C1 again, and unticking Complete reopens the event",
+    body: "Start was refused on every row in C1. Getting an event into C1 means ticking Complete, and a rule meant for the Dashboard — do not start work already marked finished — was being applied there too, so it turned down everything. It now only applies on the Dashboard. Separately, unticking Complete put the event back on the board but left it filed under Completed, with no way to get it back: Open and Completed now follow the tick rather than the status, so unticking returns it to Open immediately while its C1 review carries on untouched. C1 also gains the Dashboard's paging (50, 100, 250 or All, remembered per machine) and the Shade alternate rows option.",
+  },
+  {
     id: "2026-08-27-bell-refinements",
     date: "Aug 27, 2026",
     kind: "changed",
