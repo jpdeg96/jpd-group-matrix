@@ -1053,6 +1053,39 @@ describe("promotion into C1", () => {
       expect(live.get(event.id)).toHaveLength(1);
     });
 
+    it("still allows Start in C1 on a completed event", async () => {
+      // Every event in C1 carries a completion — that is what let it be sent
+      // there — so applying the dashboard rule to C1 refused Start on every
+      // single row in it.
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await completeAndSend(event.id, manager);
+
+      await startPresence(event.id, "C1", worker);
+      expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
+    });
+
+    it("counts an unticked event as open again without pulling it out of C1", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await completeAndSend(event.id, manager);
+
+      const whileComplete = await getDashboardStats(worker.effective.id);
+
+      await updateEvent(event.id, { complete: false }, worker);
+
+      const afterUntick = await getDashboardStats(worker.effective.id);
+
+      // Back on the board as outstanding work...
+      expect(afterUntick.total).toBe(whileComplete.total + 1);
+
+      // ...while its review carries on untouched. Both are true at once: the
+      // Dashboard tracks the preparation, C1 tracks the review of it.
+      const stored = await prisma.event.findUniqueOrThrow({ where: { id: event.id } });
+      expect(stored.status).toBe("C1");
+      expect(await prisma.reviewStage.count({ where: { eventId: event.id } })).toBe(5);
+    });
+
     it("refuses to start an event that is ticked Complete", async () => {
       const event = await makeEvent(30);
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);

@@ -6,6 +6,7 @@ import { listActiveEventTypes } from "@/lib/services/event-types";
 import { businessToday, getSettings } from "@/lib/services/settings";
 import { isPlainDate, toPlainDate } from "@/lib/date/plain-date";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
+import { sheetUrl } from "@/lib/services/google-sheets";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,7 @@ export default async function DashboardPage({
       today={today}
       stats={stats}
       currentUser={actor.effective}
+      importSheetUrl={sheetUrl(settings.importSheetId)}
       canManage={actor.effective.role !== "USER"}
       isAdmin={actor.effective.role === "ADMIN"}
       drilledFrom={

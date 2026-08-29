@@ -50,6 +50,20 @@ export const ANNOUNCEMENTS: readonly Announcement[] = [
     body: "Start was refused on every row in C1. Getting an event into C1 means ticking Complete, and a rule meant for the Dashboard — do not start work already marked finished — was being applied there too, so it turned down everything. It now only applies on the Dashboard. Separately, unticking Complete put the event back on the board but left it filed under Completed, with no way to get it back: Open and Completed now follow the tick rather than the status, so unticking returns it to Open immediately while its C1 review carries on untouched. C1 also gains the Dashboard's paging (50, 100, 250 or All, remembered per machine) and the Shade alternate rows option.",
   },
   {
+    id: "2026-08-28-sheet-import",
+    date: "Aug 28, 2026",
+    kind: "added",
+    title: "Bulk import can read a linked Google Sheet",
+    body: "Link a spreadsheet under Settings → Import spreadsheet (paste its ID or its whole URL, and share the sheet with the service account as a Viewer). Bulk import then has a Load from the linked sheet button, and a link straight to the sheet next to it. The rows go through exactly the same preview as a paste, so you still see what will be created before anything is written — and the sheet is re-read at the moment you import, so a change made while you were reviewing is picked up rather than missed.",
+  },
+  {
+    id: "2026-08-28-c1-paging-and-fixes",
+    date: "Aug 28, 2026",
+    kind: "fixed",
+    title: "Start works in C1 again, and unticking Complete reopens an event",
+    body: "Start was refusing every row in C1. The rule that stops you starting an event ticked Complete was being applied there too — but everything in C1 is ticked Complete, that is how it got there — so it blocked the entire screen. It now applies to the Dashboard only. Separately, unticking Complete puts an event back under Open where it belongs: it stays in C1 with its review work intact, so it is outstanding on the Dashboard and still progressing through review at the same time. C1 also gets the paging and row shading the Dashboard has, remembered separately from it.",
+  },
+  {
     id: "2026-08-27-bell-refinements",
     date: "Aug 27, 2026",
     kind: "changed",

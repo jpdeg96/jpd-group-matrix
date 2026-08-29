@@ -32,8 +32,146 @@ export function IntegrationSettings({
   return (
     <>
       <DriveSettings settings={settings} keyPresent={driveKeyPresent} />
+      <ImportSheetSettings settings={settings} keyPresent={driveKeyPresent} />
       <DiscordSettings settings={settings} webhookPresent={discordWebhookPresent} />
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Import spreadsheet                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Google Sheet Bulk import reads from.
+ *
+ * Its own card rather than a field on the Drive one: they share a credential
+ * but nothing else. Drive archiving is about invoices going out, this is about
+ * events coming in, and burying one inside the other would hide it from anybody
+ * looking for it by name.
+ */
+function ImportSheetSettings({
+  settings,
+  keyPresent,
+}: {
+  settings: AppSettings;
+  keyPresent: boolean;
+}) {
+  const router = useRouter();
+  const toast = useToast();
+
+  const [sheetId, setSheetId] = React.useState(settings.importSheetId ?? "");
+  const [tab, setTab] = React.useState(settings.importSheetTab ?? "");
+  const [pending, setPending] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+
+  const linkedUrl = settings.importSheetId
+    ? `https://docs.google.com/spreadsheets/d/${settings.importSheetId}/edit`
+    : null;
+
+  async function save() {
+    setPending(true);
+    try {
+      await api.patch("/api/settings", {
+        importSheetId: sheetId.trim() || null,
+        importSheetTab: tab.trim() || null,
+      });
+      toast.success("Import spreadsheet saved.");
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        "Could not save the spreadsheet.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function test() {
+    setTesting(true);
+    try {
+      const result = await api.post<{ ok: boolean; message: string }>(
+        "/api/integrations/sheet/test",
+        { sheetId: sheetId.trim() || null },
+      );
+      if (result.ok) toast.success(result.message);
+      else toast.error("Could not read that spreadsheet.", result.message);
+    } catch (error) {
+      toast.error(
+        "Could not reach Google Sheets.",
+        error instanceof ApiRequestError ? error.message : undefined,
+      );
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <PageHeader
+        title="Import spreadsheet"
+        subtitle="Lets Bulk import pull rows straight from a Google Sheet."
+      />
+
+      <div className="space-y-3 px-5 py-4">
+        {!keyPresent ? (
+          <p
+            className="rounded-md border px-2.5 py-2 text-[11.5px]"
+            style={{ borderColor: "var(--warn)", background: "var(--warn-soft)", color: "var(--warn)" }}
+          >
+            No Google service-account key is set on the server, so nothing can be
+            read yet. It is the same key Drive archiving uses —
+            GOOGLE_SERVICE_ACCOUNT_JSON.
+          </p>
+        ) : null}
+
+        <p className="text-[11.5px]" style={{ color: "var(--ink-muted)" }}>
+          Paste the sheet&rsquo;s ID or its whole URL — both work. The service
+          account must be given access to the file itself: open the sheet, press
+          Share, and add its email address as a Viewer. Reading is all it ever
+          does; nothing here writes back.
+        </p>
+
+        <Field label="Spreadsheet ID or URL" htmlFor="importSheetId">
+          <Input
+            id="importSheetId"
+            value={sheetId}
+            onChange={(event) => setSheetId(event.target.value)}
+            placeholder="1AbC… or https://docs.google.com/spreadsheets/d/1AbC…/edit"
+          />
+        </Field>
+
+        <Field label="Tab" htmlFor="importSheetTab">
+          <Input
+            id="importSheetTab"
+            value={tab}
+            onChange={(event) => setTab(event.target.value)}
+            placeholder="Leave empty for the first tab"
+          />
+        </Field>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" loading={pending} onClick={save}>
+            Save
+          </Button>
+          <Button loading={testing} disabled={!sheetId.trim()} onClick={test}>
+            Test connection
+          </Button>
+          {linkedUrl ? (
+            <a
+              href={linkedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11.5px] underline-offset-2 hover:underline"
+              style={{ color: "var(--accent)" }}
+            >
+              Open the linked sheet ↗
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </Card>
   );
 }
 

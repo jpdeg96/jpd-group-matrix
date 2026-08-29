@@ -445,6 +445,21 @@ model Settings {
   driveUploadEnabled Boolean @default(false) @map("drive_upload_enabled")
   driveFolderId      String? @map("drive_folder_id")
 
+  /// The Google Sheet that Bulk import can pull rows from, so a schedule kept
+  /// in Sheets does not have to be copied and pasted every week.
+  ///
+  /// Read with the same service account as Drive — the `drive` scope covers the
+  /// Sheets API — so there is no second credential, and none of it is stored
+  /// here. The spreadsheet ID is not secret: it is the middle of the sheet's
+  /// own URL, and the service account still has to be given access to the file
+  /// before it can read a single cell.
+  ///
+  /// `importSheetTab` names which tab to read. NULL means the first one, which
+  /// is right for the common case of a single-tab schedule and wrong the moment
+  /// somebody adds a "Notes" tab in front of it.
+  importSheetId  String? @map("import_sheet_id")
+  importSheetTab String? @map("import_sheet_tab")
+
   /// Phantom Calculator rates, read by the desktop calculator over
   /// `/api/phantom-calculator/rates`.
   ///

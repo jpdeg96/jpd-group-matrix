@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/constants";
 import { validationError } from "@/lib/errors";
 import { recordAudit } from "./audit";
+import { normaliseSheetId } from "./google-sheets";
 
 export const SETTINGS_ID = "singleton";
 
@@ -48,6 +49,10 @@ export interface AppSettings {
   /** Google Drive archiving. The service-account key stays in the environment. */
   driveUploadEnabled: boolean;
   driveFolderId: string | null;
+
+  /** The Google Sheet Bulk import can read. Null when nothing is linked. */
+  importSheetId: string | null;
+  importSheetTab: string | null;
 
   /**
    * Phantom Calculator rates, as decimal fractions — 0.2 is 20%.
@@ -125,6 +130,8 @@ export async function getSettings(): Promise<AppSettings> {
     clockifyWorkspaceId: row.clockifyWorkspaceId,
     driveUploadEnabled: row.driveUploadEnabled,
     driveFolderId: row.driveFolderId,
+    importSheetId: row.importSheetId,
+    importSheetTab: row.importSheetTab,
     // Decimal → number. Safe here in a way it is not for money: a rate is four
     // decimal places of a value below 1, which a double represents exactly
     // enough that the division downstream is unaffected.
@@ -183,6 +190,8 @@ export interface UpdateSettingsInput {
   driveUploadEnabled?: boolean;
   driveFolderId?: string | null;
   discordEnabled?: boolean;
+  importSheetId?: string | null;
+  importSheetTab?: string | null;
 
   /** Phantom Calculator rates as decimal fractions. Null clears one. */
   phantomTier1Rate?: number | null;
@@ -286,6 +295,13 @@ export async function updateSettings(
         : {}),
       ...(input.discordEnabled !== undefined
         ? { discordEnabled: input.discordEnabled }
+        : {}),
+      // Reduced to the bare id, so pasting the whole URL works.
+      ...(input.importSheetId !== undefined
+        ? { importSheetId: normaliseSheetId(input.importSheetId) }
+        : {}),
+      ...(input.importSheetTab !== undefined
+        ? { importSheetTab: input.importSheetTab?.trim() || null }
         : {}),
       // Stored through Decimal so the value that lands in Postgres is the one
       // that was typed, at the column's own precision.

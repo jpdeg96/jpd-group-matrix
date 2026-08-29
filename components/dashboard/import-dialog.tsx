@@ -22,22 +22,36 @@ export function ImportDialog({
   open,
   onClose,
   onImported,
+  sheetUrl,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
+  /** The linked Google Sheet, or null when none is configured. */
+  sheetUrl: string | null;
 }) {
   const toast = useToast();
   const [text, setText] = React.useState("");
   const [preview, setPreview] = React.useState<ParseResult | null>(null);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /*
+   * Which source the preview came from.
+   *
+   * The commit has to use the same one: committing a sheet preview as pasted
+   * text would send the browser copy back and quietly import a snapshot rather
+   * than the sheet.
+   */
+  const [source, setSource] = React.useState<"TEXT" | "SHEET">("TEXT");
+  const [sheetTab, setSheetTab] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
       setText("");
       setPreview(null);
       setError(null);
+      setSource("TEXT");
+      setSheetTab(null);
     }
   }, [open]);
 
@@ -51,9 +65,12 @@ export function ImportDialog({
     setError(null);
     try {
       const result = await api.post<{ preview: ParseResult }>("/api/import", {
+        source: "TEXT",
         text: value,
         commit: false,
       });
+      setSource("TEXT");
+      setSheetTab(null);
       setPreview(result.preview);
     } catch (caught) {
       setPreview(null);
@@ -61,6 +78,42 @@ export function ImportDialog({
         caught instanceof ApiRequestError
           ? caught.message
           : "Could not parse that. Check the format and try again.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  /**
+   * Pulls the linked sheet.
+   *
+   * The rows are never sent from here — the server reads the spreadsheet on
+   * both the preview and the commit. So what lands in the preview is what the
+   * sheet says, and what gets written is what it says at the moment of writing,
+   * rather than a copy this browser has been holding.
+   */
+  async function loadFromSheet() {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await api.post<{
+        preview: ParseResult;
+        sheet: { tab: string; url: string | null } | null;
+      }>("/api/import", { source: "SHEET", commit: false });
+
+      setSource("SHEET");
+      setSheetTab(result.sheet?.tab ?? null);
+      setPreview(result.preview);
+      // The pasted box is cleared so there is no second, stale set of rows on
+      // screen implying it is the one about to be imported.
+      setText("");
+    } catch (caught) {
+      setPreview(null);
+      setSource("TEXT");
+      setError(
+        caught instanceof ApiRequestError
+          ? caught.message
+          : "Could not read the linked spreadsheet.",
       );
     } finally {
       setPending(false);
@@ -78,7 +131,12 @@ export function ImportDialog({
     try {
       const result = await api.post<{
         result: { created: number; skipped: number; typesCreated: string[] };
-      }>("/api/import", { text, commit: true });
+      }>(
+        "/api/import",
+        source === "SHEET"
+          ? { source: "SHEET", commit: true }
+          : { source: "TEXT", text, commit: true },
+      );
 
       const { created, skipped, typesCreated } = result.result;
       toast.success(
@@ -140,6 +198,39 @@ export function ImportDialog({
             and the preview shows exactly how each one was understood.
           </p>
         </div>
+
+        {sheetUrl ? (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border px-2.5 py-2"
+            style={{ borderColor: "var(--line)", background: "var(--canvas)" }}
+          >
+            <Button
+              variant="primary"
+              size="sm"
+              loading={pending && source === "SHEET"}
+              onClick={loadFromSheet}
+            >
+              Load from the linked sheet
+            </Button>
+            {/* Straight to the source, so checking a suspicious row against the
+                spreadsheet does not mean hunting for the file first. */}
+            <a
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11.5px] underline-offset-2 hover:underline"
+              style={{ color: "var(--accent)" }}
+            >
+              Open the sheet ↗
+            </a>
+            {source === "SHEET" && sheetTab ? (
+              <span className="text-[11px]" style={{ color: "var(--ink-subtle)" }}>
+                Showing the “{sheetTab}” tab. It is re-read when you import, so a
+                change made in the meantime is picked up.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <label

@@ -168,7 +168,15 @@ export function buildJwtClaims(clientEmail: string, now: number) {
   };
 }
 
-async function accessToken(): Promise<string> {
+/**
+ * A bearer token for the service account.
+ *
+ * Exported because Sheets needs the same one. The `drive` scope this asks for
+ * is accepted by the Sheets API too, so a linked spreadsheet costs no second
+ * credential, no second consent, and no second thing to rotate — and the cached
+ * token is shared rather than fetched twice.
+ */
+export async function accessToken(): Promise<string> {
   const account = serviceAccount();
   if (!account) {
     throw new DriveError(

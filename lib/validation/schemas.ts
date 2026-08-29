@@ -414,6 +414,19 @@ export const updateSettingsSchema = z
       .optional(),
     discordEnabled: z.boolean().optional(),
 
+    // The linked Google Sheet Bulk import reads from. A spreadsheet ID is not
+    // secret either — it is the middle of the sheet's own URL — and the
+    // service account must still be given access to the file before the id is
+    // worth anything. A whole pasted URL is accepted and reduced server-side.
+    importSheetId: z
+      .union([z.literal(""), z.string().trim().max(300)])
+      .nullable()
+      .optional(),
+    importSheetTab: z
+      .union([z.literal(""), z.string().trim().max(120)])
+      .nullable()
+      .optional(),
+
     // Phantom Calculator rates, as decimal fractions. `null` clears one, which
     // is deliberately allowed: an unset rate stops the desktop calculator
     // answering, and that is a safer state than a stale rate nobody trusts.
@@ -439,10 +452,25 @@ export const driveTestSchema = z.object({
 /* Import                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export const importSchema = z.object({
-  text: z.string().min(1, "Paste some rows first.").max(1_000_000),
-  commit: z.boolean().default(false),
-});
+/**
+ * A bulk import, from pasted text or from the linked sheet.
+ *
+ * `source: "SHEET"` carries no text: the server reads the spreadsheet itself.
+ * Accepting rows from the browser for a "sheet" import would mean the preview
+ * and the commit could describe different data, and would let anybody post
+ * whatever they liked while calling it the sheet.
+ */
+export const importSchema = z.discriminatedUnion("source", [
+  z.object({
+    source: z.literal("TEXT"),
+    text: z.string().min(1, "Paste some rows first.").max(1_000_000),
+    commit: z.boolean().default(false),
+  }),
+  z.object({
+    source: z.literal("SHEET"),
+    commit: z.boolean().default(false),
+  }),
+]);
 
 /* -------------------------------------------------------------------------- */
 /* Impersonation                                                              */

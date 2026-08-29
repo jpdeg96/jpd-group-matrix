@@ -98,6 +98,7 @@ export function DashboardView({
   canManage,
   isAdmin,
   drilledFrom,
+  importSheetUrl,
 }: {
   events: DashboardEventView[];
   latestNotes: Record<string, NoteView>;
@@ -120,6 +121,8 @@ export function DashboardView({
   currentUser: { id: string; role: string };
   canManage: boolean;
   isAdmin: boolean;
+  /** The linked Google Sheet Bulk import can read, or null. */
+  importSheetUrl: string | null;
   /** Set when arriving from a Metrics bar, so the screen can say so. */
   drilledFrom: {
     personName: string;
@@ -1416,6 +1419,7 @@ export function DashboardView({
           <ImportDialog
             open={importing}
             onClose={() => setImporting(false)}
+            sheetUrl={importSheetUrl}
             onImported={() => {
               setImporting(false);
               router.refresh();
