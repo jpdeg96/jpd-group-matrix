@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/primitives";
+import { cn } from "@/lib/ui/cn";
 
 export interface ColumnSpec {
   key: string;
@@ -107,22 +108,57 @@ export function ColumnPicker({
 }) {
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+
+  /**
+   * Where the menu goes, and how tall it may be.
+   *
+   * This control lives in the table footer, which is at the bottom of a long
+   * page — so a menu that always opens downward opens straight off the screen,
+   * with no way to reach the columns at the end of the list. It flips above the
+   * button when there is more room there, and is capped to whatever room it
+   * actually has so the list scrolls instead of overflowing.
+   */
+  const [placement, setPlacement] = React.useState<{ up: boolean; maxHeight: number }>({
+    up: false,
+    maxHeight: 320,
+  });
+
+  const place = React.useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+
+    const box = button.getBoundingClientRect();
+    // 8px of breathing room, so the menu never sits flush against the edge.
+    const below = window.innerHeight - box.bottom - 8;
+    const above = box.top - 8;
+    const up = below < 260 && above > below;
+
+    setPlacement({ up, maxHeight: Math.max(160, Math.floor(up ? above : below)) });
+  }, []);
 
   React.useEffect(() => {
     if (!open) return;
+
     const onClick = (event: MouseEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+    // Scrolling or resizing while it is open moves the button, and the menu has
+    // to follow rather than stay where it was told to go.
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", onClick);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
     };
-  }, [open]);
+  }, [open, place]);
 
   const hiddenCount = columns.filter(
     (column) => !column.required && hidden.has(column.key),
@@ -138,11 +174,17 @@ export function ColumnPicker({
   return (
     <div ref={containerRef} className="relative">
       <Button
+        ref={buttonRef}
         size="sm"
         variant={hiddenCount > 0 ? "primary" : "secondary"}
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          // Measured before opening, so the first paint is already in the
+          // right place rather than jumping after it appears.
+          if (!open) place();
+          setOpen((value) => !value);
+        }}
         title="Choose which columns to show"
       >
         Columns
@@ -154,8 +196,15 @@ export function ColumnPicker({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-50 mt-1 max-h-[70vh] w-56 overflow-y-auto rounded-md border p-1 shadow-xl scrollbar-thin"
-          style={{ background: "var(--surface-raised)", borderColor: "var(--line-strong)" }}
+          className={cn(
+            "absolute right-0 z-50 w-56 overflow-y-auto rounded-md border p-1 shadow-xl scrollbar-thin",
+            placement.up ? "bottom-full mb-1" : "top-full mt-1",
+          )}
+          style={{
+            background: "var(--surface-raised)",
+            borderColor: "var(--line-strong)",
+            maxHeight: placement.maxHeight,
+          }}
         >
           <p className="px-2 py-1.5 text-[11px]" style={{ color: "var(--ink-subtle)" }}>
             Hide what you do not use to fit a narrower screen. Remembered on this
