@@ -48,6 +48,11 @@ import {
   pageSizeLabel,
   useTablePreferences,
 } from "@/components/dashboard/use-table-preferences";
+import {
+  C1_COLUMNS,
+  ColumnPicker,
+  tableMinWidth,
+} from "@/components/dashboard/column-picker";
 import type { C1RowView } from "@/lib/services/stages";
 import type { UserOption } from "@/lib/services/users";
 
@@ -112,7 +117,21 @@ export function C1View({
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [bulkOpen, setBulkOpen] = React.useState(false);
 
-  const { pageSize, stripeRows, update: setPreference } = useTablePreferences("c1");
+  const {
+    pageSize,
+    stripeRows,
+    hiddenColumns,
+    update: setPreference,
+  } = useTablePreferences("c1");
+
+  const hidden = React.useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  /** Whether a column is on screen. Required ones ignore the stored list. */
+  const show = React.useCallback(
+    (key: string) =>
+      !hidden.has(key) ||
+      C1_COLUMNS.some((column) => column.key === key && column.required),
+    [hidden],
+  );
   const [page, setPage] = React.useState(0);
 
   React.useEffect(() => {
@@ -497,7 +516,12 @@ export function C1View({
         />
       ) : (
         <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full min-w-[1620px] border-collapse">
+          <table
+            className="w-full border-collapse"
+            style={{
+              minWidth: tableMinWidth(C1_COLUMNS, hidden, canEditDueDates ? 40 : 0),
+            }}
+          >
             <thead className="sticky top-0 z-10" style={{ background: "var(--surface)", boxShadow: "0 1px 0 var(--line)" }}>
               <tr>
                 {canEditDueDates ? (
@@ -519,18 +543,18 @@ export function C1View({
                     />
                   </Th>
                 ) : null}
-                <Th className="w-[7.5rem]">Review Due</Th>
-                <Th className="w-[5rem]">Stage</Th>
-                <Th className="w-[9.5rem]">Date</Th>
-                <Th className="w-[6.5rem]">Type</Th>
-                <Th className="w-[11.5rem]">Away Team / Artist</Th>
-                <Th className="w-[11.5rem]">Home Team</Th>
-                <Th className="w-[10rem]">Venue</Th>
-                <Th className="w-[14rem]">Notes</Th>
-                <Th className="w-[8.5rem]">In progress</Th>
-                <Th className="w-[10rem]">Assigned</Th>
-                <Th className="w-[7rem]">Flag</Th>
-                <Th className="w-[5rem]">Done</Th>
+                {show("due") ? <Th className="w-[7.5rem]">Review Due</Th> : null}
+                {show("stage") ? <Th className="w-[5rem]">Stage</Th> : null}
+                {show("date") ? <Th className="w-[9.5rem]">Date</Th> : null}
+                {show("type") ? <Th className="w-[6.5rem]">Type</Th> : null}
+                {show("away") ? <Th className="w-[11.5rem]">Away Team / Artist</Th> : null}
+                {show("home") ? <Th className="w-[11.5rem]">Home Team</Th> : null}
+                {show("venue") ? <Th className="w-[10rem]">Venue</Th> : null}
+                {show("notes") ? <Th className="w-[14rem]">Notes</Th> : null}
+                {show("progress") ? <Th className="w-[8.5rem]">In progress</Th> : null}
+                {show("assigned") ? <Th className="w-[10rem]">Assigned</Th> : null}
+                {show("flag") ? <Th className="w-[7rem]">Flag</Th> : null}
+                {show("done") ? <Th className="w-[5rem]">Done</Th> : null}
               </tr>
             </thead>
             <tbody>
@@ -581,7 +605,7 @@ export function C1View({
                       </Td>
                     ) : null}
 
-                    <Td>
+                    {show("due") ? <Td>
                       {/* Compact by design: the weekday-and-date line plus a
                           short relative badge, with the picker sized to its own
                           content rather than stretched to the column. */}
@@ -673,9 +697,9 @@ export function C1View({
                           </span>
                         )}
                       </div>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("stage") ? <Td>
                       <div className="flex flex-col items-start gap-1">
                         <span
                           className="inline-flex rounded border px-1.5 py-px font-mono text-[11px] font-semibold"
@@ -687,15 +711,15 @@ export function C1View({
                           {row.resolvedStages}/{row.totalStages} done
                         </span>
                       </div>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("date") ? <Td>
                       <div className="flex flex-col items-start gap-1">
                         <span>{formatPlainDateWithWeekday(row.eventDate)}</span>
                         <LegacyBadge source={row.legacySource} />
                       </div>
-                    </Td>
-                    <Td>
+                    </Td> : null}
+                    {show("type") ? <Td>
                       <span className="flex items-center gap-1.5">
                         {row.eventTypeEmoji ? (
                           <span aria-hidden className="text-[14px] leading-none">
@@ -704,16 +728,16 @@ export function C1View({
                         ) : null}
                         {row.eventTypeName}
                       </span>
-                    </Td>
-                    <Td>{row.awayTeam ?? <Muted>—</Muted>}</Td>
-                    <Td>{row.homeTeam ?? <Muted>—</Muted>}</Td>
-                    <Td className="text-[12px]">{row.venue ?? <Muted>—</Muted>}</Td>
+                    </Td> : null}
+                    {show("away") ? <Td>{row.awayTeam ?? <Muted>—</Muted>}</Td> : null}
+                    {show("home") ? <Td>{row.homeTeam ?? <Muted>—</Muted>}</Td> : null}
+                    {show("venue") ? <Td className="text-[12px]">{row.venue ?? <Muted>—</Muted>}</Td> : null}
 
                     {/* The same cell the Dashboard uses. A note belongs to the
                         event, so anything left before the event reached review
                         is already here — this is the column that was missing,
                         not the data. */}
-                    <Td>
+                    {show("notes") ? <Td>
                       <NotesCell
                         eventId={row.eventId}
                         noteCount={row.noteCount + (noteCounts[row.eventId] ?? 0)}
@@ -742,9 +766,9 @@ export function C1View({
                           })
                         }
                       />
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("progress") ? <Td>
                       <InProgressButton
                         eventId={row.eventId}
                         working={working}
@@ -754,9 +778,9 @@ export function C1View({
                         assigned={row.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("assigned") ? <Td>
                       <CellSelect
                         aria-label="Assigned"
                         value={row.assigneeId ?? ""}
@@ -802,9 +826,9 @@ export function C1View({
                           className="mt-0.5 px-1.5 text-[10.5px]"
                         />
                       ) : null}
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("flag") ? <Td>
                       <FlagControl
                         eventId={row.eventId}
                         flaggedAt={row.flaggedAt}
@@ -816,9 +840,9 @@ export function C1View({
                         canWork={mayWorkOn(row.assigneeId)}
                         onChanged={() => router.refresh()}
                       />
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("done") ? <Td>
                       <Checkbox
                         label={`Mark ${reviewStageLabel(row.offsetDays)} done`}
                         checked={false}
@@ -829,7 +853,7 @@ export function C1View({
                           void mutate(row, "done", { done: true }, (item) => item);
                         }}
                       />
-                    </Td>
+                    </Td> : null}
                   </tr>
                 );
               })}
@@ -906,6 +930,12 @@ export function C1View({
             />
             Shade alternate rows
           </label>
+
+          <ColumnPicker
+            columns={C1_COLUMNS}
+            hidden={hidden}
+            onChange={(next) => setPreference({ hiddenColumns: next })}
+          />
         </div>
       ) : null}
 

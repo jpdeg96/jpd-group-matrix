@@ -10,6 +10,14 @@ export const PAGE_SIZES: readonly PageSize[] = [50, 100, 250, "ALL"];
 export interface TablePreferences {
   pageSize: PageSize;
   stripeRows: boolean;
+  /**
+   * Columns this person has turned off, by key.
+   *
+   * Stored as what is *hidden* rather than what is shown, so a column added in
+   * a later release appears for everybody instead of being invisible to anyone
+   * whose saved list predates it.
+   */
+  hiddenColumns: string[];
 }
 
 const DEFAULTS: TablePreferences = {
@@ -17,6 +25,9 @@ const DEFAULTS: TablePreferences = {
   // visit should land on something navigable rather than on everything.
   pageSize: 50,
   stripeRows: false,
+  // Nothing hidden. A first visit shows the whole table; narrowing it is a
+  // choice, and one made by somebody who can see what they are giving up.
+  hiddenColumns: [],
 };
 
 function storageKey(table: string): string {
@@ -55,6 +66,9 @@ export function useTablePreferences(table: string) {
             typeof parsed.stripeRows === "boolean"
               ? parsed.stripeRows
               : DEFAULTS.stripeRows,
+          hiddenColumns: Array.isArray(parsed.hiddenColumns)
+            ? parsed.hiddenColumns.filter((key): key is string => typeof key === "string")
+            : DEFAULTS.hiddenColumns,
         });
       }
     } catch {

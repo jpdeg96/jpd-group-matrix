@@ -33,6 +33,11 @@ import {
   pageSizeLabel,
   useTablePreferences,
 } from "./use-table-preferences";
+import {
+  ColumnPicker,
+  DASHBOARD_COLUMNS,
+  tableMinWidth,
+} from "./column-picker";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
 import { FlagControl } from "@/components/flags/flag-control";
@@ -159,8 +164,22 @@ export function DashboardView({
   const [bulkOpen, setBulkOpen] = React.useState(false);
 
   const columns = useColumnWidths("dashboard");
-  const { pageSize, stripeRows, update: setPreference } = useTablePreferences("dashboard");
+  const {
+    pageSize,
+    stripeRows,
+    hiddenColumns,
+    update: setPreference,
+  } = useTablePreferences("dashboard");
   const [page, setPage] = React.useState(0);
+
+  const hidden = React.useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  /** Whether a column is on screen. Required ones ignore the stored list. */
+  const show = React.useCallback(
+    (key: string) =>
+      !hidden.has(key) ||
+      DASHBOARD_COLUMNS.some((column) => column.key === key && column.required),
+    [hidden],
+  );
 
   React.useEffect(() => {
     setEvents(initialEvents);
@@ -636,7 +655,7 @@ export function DashboardView({
               active={pendingWork === "TICKETDATA"}
               onClick={() => togglePendingWork("TICKETDATA")}
             />
-            {showAudited ? (
+            {showAudited && show("audited") ? (
               <StatPill
                 label="to audit"
                 value={stats.auditPending}
@@ -885,7 +904,23 @@ export function DashboardView({
         />
       ) : (
         <div className="overflow-x-auto scrollbar-thin">
-          <table className="w-full min-w-[1620px] border-collapse">
+          <table
+            className="w-full border-collapse"
+            // Computed from the columns actually on screen rather than fixed, so
+            // turning one off genuinely reclaims its width instead of leaving
+            // the scrollbar exactly where it was.
+            style={{
+              minWidth: tableMinWidth(
+                DASHBOARD_COLUMNS.filter(
+                  (column) =>
+                    (column.key !== "audited" || showAudited) &&
+                    (column.key !== "actions" || showActions),
+                ),
+                hidden,
+                selecting ? 40 : 0,
+              ),
+            }}
+          >
             <thead
               className="sticky top-0 z-10"
               style={{ background: "var(--surface)", boxShadow: "0 1px 0 var(--line)" }}
@@ -914,23 +949,23 @@ export function DashboardView({
                     />
                   </Th>
                 ) : null}
-                <ResizableTh columnKey="date" label="Date" sortKey="eventDate" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[9.5rem]" />
-                <ResizableTh columnKey="type" label="Type" sortKey="eventTypeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[7rem]" />
-                <ResizableTh columnKey="away" label="Away Team / Artist" sortKey="awayTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" />
-                <ResizableTh columnKey="home" label="Home Team" sortKey="homeTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" />
-                <ResizableTh columnKey="venue" label="Venue" sortKey="venue" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" />
-                <ResizableTh columnKey="progress" label="In progress" columns={columns} className="w-[8rem]" />
-                <ResizableTh columnKey="assigned" label="Assigned" sortKey="assigneeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" />
-                <ResizableTh columnKey="flag" label="Flag" columns={columns} className="w-[6.5rem]" />
-                <ResizableTh columnKey="complete" label="Complete" columns={columns} className="w-[11rem]" />
-                <ResizableTh columnKey="seatgeek" label="SeatGeek" columns={columns} className="w-[7.5rem]" />
-                <ResizableTh columnKey="ticketdata" label="TicketData" columns={columns} className="w-[5.5rem]" />
-                <ResizableTh columnKey="sendtoc1" label="To C1" columns={columns} className="w-[7rem]" />
-                <ResizableTh columnKey="notes" label="Notes" columns={columns} className="w-[14rem]" />
-                {showAudited ? (
+                {show("date") ? <ResizableTh columnKey="date" label="Date" sortKey="eventDate" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[9.5rem]" /> : null}
+                {show("type") ? <ResizableTh columnKey="type" label="Type" sortKey="eventTypeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[7rem]" /> : null}
+                {show("away") ? <ResizableTh columnKey="away" label="Away Team / Artist" sortKey="awayTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" /> : null}
+                {show("home") ? <ResizableTh columnKey="home" label="Home Team" sortKey="homeTeam" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[11.5rem]" /> : null}
+                {show("venue") ? <ResizableTh columnKey="venue" label="Venue" sortKey="venue" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" /> : null}
+                {show("progress") ? <ResizableTh columnKey="progress" label="In progress" columns={columns} className="w-[8rem]" /> : null}
+                {show("assigned") ? <ResizableTh columnKey="assigned" label="Assigned" sortKey="assigneeName" sort={sort} direction={direction} onSort={toggleSort} columns={columns} className="w-[10rem]" /> : null}
+                {show("flag") ? <ResizableTh columnKey="flag" label="Flag" columns={columns} className="w-[6.5rem]" /> : null}
+                {show("complete") ? <ResizableTh columnKey="complete" label="Complete" columns={columns} className="w-[11rem]" /> : null}
+                {show("seatgeek") ? <ResizableTh columnKey="seatgeek" label="SeatGeek" columns={columns} className="w-[7.5rem]" /> : null}
+                {show("ticketdata") ? <ResizableTh columnKey="ticketdata" label="TicketData" columns={columns} className="w-[5.5rem]" /> : null}
+                {show("sendtoc1") ? <ResizableTh columnKey="sendtoc1" label="To C1" columns={columns} className="w-[7rem]" /> : null}
+                {show("notes") ? <ResizableTh columnKey="notes" label="Notes" columns={columns} className="w-[14rem]" /> : null}
+                {showAudited && show("audited") ? (
                   <ResizableTh columnKey="audited" label="Audited" columns={columns} className="w-[7.5rem]" />
                 ) : null}
-                {showActions ? (
+                {showActions && show("actions") ? (
                   <ResizableTh columnKey="actions" label="Actions" columns={columns} className="w-[6rem]" />
                 ) : null}
               </tr>
@@ -1016,7 +1051,7 @@ export function DashboardView({
                       </div>
                     </Td>
 
-                    <Td>
+                    {show("type") ? <Td>
                       <span className="flex items-center gap-1.5">
                         {event.eventTypeEmoji ? (
                           <span aria-hidden className="text-[14px] leading-none">
@@ -1025,13 +1060,13 @@ export function DashboardView({
                         ) : null}
                         {event.eventTypeName}
                       </span>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>{event.awayTeam ?? <Muted>—</Muted>}</Td>
-                    <Td>{event.homeTeam ?? <Muted>—</Muted>}</Td>
-                    <Td className="text-[12px]">{event.venue ?? <Muted>—</Muted>}</Td>
+                    {show("away") ? <Td>{event.awayTeam ?? <Muted>—</Muted>}</Td> : null}
+                    {show("home") ? <Td>{event.homeTeam ?? <Muted>—</Muted>}</Td> : null}
+                    {show("venue") ? <Td className="text-[12px]">{event.venue ?? <Muted>—</Muted>}</Td> : null}
 
-                    <Td>
+                    {show("progress") ? <Td>
                       <InProgressButton
                         eventId={event.id}
                         working={working}
@@ -1041,9 +1076,9 @@ export function DashboardView({
                         assigned={event.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("assigned") ? <Td>
                       <CellSelect
                         aria-label="Assigned"
                         value={event.assigneeId ?? ""}
@@ -1086,9 +1121,9 @@ export function DashboardView({
                           className="mt-0.5 px-1.5 text-[10.5px]"
                         />
                       ) : null}
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("flag") ? <Td>
                       <FlagControl
                         eventId={event.id}
                         flaggedAt={event.flaggedAt}
@@ -1100,9 +1135,9 @@ export function DashboardView({
                         canWork={mayWorkOn(event.assigneeId)}
                         onChanged={() => router.refresh()}
                       />
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("complete") ? <Td>
                       <div className="flex flex-col gap-1">
                         <Checkbox
                           label="Complete"
@@ -1162,9 +1197,9 @@ export function DashboardView({
                           </>
                         )}
                       </div>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("seatgeek") ? <Td>
                       <div className="flex flex-col gap-1">
                         <Checkbox
                           label="SeatGeek"
@@ -1184,9 +1219,9 @@ export function DashboardView({
                           byColor={event.seatGeekByColor}
                         />
                       </div>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("ticketdata") ? <Td>
                       <div className="flex flex-col gap-1">
                         <Checkbox
                           label="TicketData"
@@ -1227,9 +1262,9 @@ export function DashboardView({
                           ) : null}
                         </span>
                       </div>
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("sendtoc1") ? <Td>
                       {event.status === "C1" || event.status === "COMPLETED" ? (
                         <Badge tone="success">In C1</Badge>
                       ) : event.completedAt ? (
@@ -1247,9 +1282,9 @@ export function DashboardView({
                           tick Complete first
                         </span>
                       )}
-                    </Td>
+                    </Td> : null}
 
-                    <Td>
+                    {show("notes") ? <Td>
                       <NotesCell
                         eventId={event.id}
                         noteCount={noteCount}
@@ -1275,9 +1310,9 @@ export function DashboardView({
                           })
                         }
                       />
-                    </Td>
+                    </Td> : null}
 
-                    {showAudited ? (
+                    {showAudited && show("audited") ? (
                       <Td>
                         <div className="flex flex-col gap-1">
                           <Checkbox
@@ -1301,7 +1336,7 @@ export function DashboardView({
                       </Td>
                     ) : null}
 
-                    {showActions ? (
+                    {showActions && show("actions") ? (
                       <Td className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button size="sm" variant="ghost" onClick={() => setEditing(event)}>
@@ -1395,6 +1430,16 @@ export function DashboardView({
             />
             Shade alternate rows
           </label>
+
+          <ColumnPicker
+            columns={DASHBOARD_COLUMNS.filter(
+              (column) =>
+                (column.key !== "audited" || showAudited) &&
+                (column.key !== "actions" || showActions),
+            )}
+            hidden={hidden}
+            onChange={(next) => setPreference({ hiddenColumns: next })}
+          />
         </div>
       ) : null}
 

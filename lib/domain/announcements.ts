@@ -43,11 +43,11 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
-    id: "2026-08-27-c1-paging-and-open-fix",
-    date: "Aug 27, 2026",
-    kind: "fixed",
-    title: "Start works in C1 again, and unticking Complete reopens the event",
-    body: "Start was refused on every row in C1. Getting an event into C1 means ticking Complete, and a rule meant for the Dashboard — do not start work already marked finished — was being applied there too, so it turned down everything. It now only applies on the Dashboard. Separately, unticking Complete put the event back on the board but left it filed under Completed, with no way to get it back: Open and Completed now follow the tick rather than the status, so unticking returns it to Open immediately while its C1 review carries on untouched. C1 also gains the Dashboard's paging (50, 100, 250 or All, remembered per machine) and the Shade alternate rows option.",
+    id: "2026-08-29-columns",
+    date: "Aug 29, 2026",
+    kind: "added",
+    title: "Choose which columns to show",
+    body: "A Columns button at the bottom of the Dashboard and C1 turns individual columns off, so the table can fit a laptop screen without scrolling sideways. Hide what you do not use and the table narrows to match — it is not a fixed width any more. Date and Away Team / Artist always stay, since a row cannot be identified without them. Your choice is remembered on that machine, per table, and Show every column puts them all back.",
   },
   {
     id: "2026-08-28-sheet-import",
@@ -62,6 +62,13 @@ export const ANNOUNCEMENTS: readonly Announcement[] = [
     kind: "fixed",
     title: "Start works in C1 again, and unticking Complete reopens an event",
     body: "Start was refusing every row in C1. The rule that stops you starting an event ticked Complete was being applied there too — but everything in C1 is ticked Complete, that is how it got there — so it blocked the entire screen. It now applies to the Dashboard only. Separately, unticking Complete puts an event back under Open where it belongs: it stays in C1 with its review work intact, so it is outstanding on the Dashboard and still progressing through review at the same time. C1 also gets the paging and row shading the Dashboard has, remembered separately from it.",
+  },
+  {
+    id: "2026-08-27-c1-paging-and-open-fix",
+    date: "Aug 27, 2026",
+    kind: "fixed",
+    title: "Start works in C1 again, and unticking Complete reopens the event",
+    body: "Start was refused on every row in C1. Getting an event into C1 means ticking Complete, and a rule meant for the Dashboard — do not start work already marked finished — was being applied there too, so it turned down everything. It now only applies on the Dashboard. Separately, unticking Complete put the event back on the board but left it filed under Completed, with no way to get it back: Open and Completed now follow the tick rather than the status, so unticking returns it to Open immediately while its C1 review carries on untouched. C1 also gains the Dashboard's paging (50, 100, 250 or All, remembered per machine) and the Shade alternate rows option.",
   },
   {
     id: "2026-08-27-bell-refinements",
