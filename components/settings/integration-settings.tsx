@@ -64,6 +64,7 @@ function ImportSheetSettings({
   const [tab, setTab] = React.useState(settings.importSheetTab ?? "");
   const [pending, setPending] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
+  const [accountEmail, setAccountEmail] = React.useState<string | null>(null);
 
   const linkedUrl = settings.importSheetId
     ? `https://docs.google.com/spreadsheets/d/${settings.importSheetId}/edit`
@@ -91,10 +92,17 @@ function ImportSheetSettings({
   async function test() {
     setTesting(true);
     try {
-      const result = await api.post<{ ok: boolean; message: string }>(
-        "/api/integrations/sheet/test",
-        { sheetId: sheetId.trim() || null },
-      );
+      const result = await api.post<{
+        ok: boolean;
+        message: string;
+        serviceAccountEmail: string | null;
+      }>("/api/integrations/sheet/test", { sheetId: sheetId.trim() || null });
+
+      // Kept on screen rather than only in the toast: the address is what you
+      // need in the Google Share dialog, and a toast is gone by the time you
+      // have switched tabs to paste it.
+      setAccountEmail(result.serviceAccountEmail);
+
       if (result.ok) toast.success(result.message);
       else toast.error("Could not read that spreadsheet.", result.message);
     } catch (error) {
@@ -170,6 +178,26 @@ function ImportSheetSettings({
             </a>
           ) : null}
         </div>
+
+        {accountEmail ? (
+          <div
+            className="rounded-md border px-2.5 py-2"
+            style={{ borderColor: "var(--line)", background: "var(--canvas)" }}
+          >
+            <p className="text-[11.5px]" style={{ color: "var(--ink-muted)" }}>
+              Share the sheet with this address as a <strong>Viewer</strong>:
+            </p>
+            {/* Selectable rather than a label: it is going to be copied into
+                Google's Share dialog, and retyping a service-account address by
+                hand is how a working key looks broken. */}
+            <code
+              className="mt-1 block select-all break-all rounded px-1.5 py-1 text-[11.5px]"
+              style={{ background: "var(--surface)", color: "var(--ink)" }}
+            >
+              {accountEmail}
+            </code>
+          </div>
+        ) : null}
       </div>
     </Card>
   );

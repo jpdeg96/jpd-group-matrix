@@ -15,7 +15,12 @@
  * permission to read.
  */
 
-import { accessToken, DriveError, isDriveConfigured } from "./google-drive";
+import {
+  accessToken,
+  DriveError,
+  isDriveConfigured,
+  serviceAccount,
+} from "./google-drive";
 
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 const TIMEOUT_MS = 20_000;
@@ -106,15 +111,31 @@ async function describe(response: Response, sheetId: string): Promise<string> {
     | { error?: { message?: string; status?: string } }
     | null;
   const message = body?.error?.message;
+  const email = serviceAccount()?.client_email;
+  const share = email
+    ? `Share the sheet with ${email} as a Viewer, then try again.`
+    : "Share the sheet with the service account's email address as a Viewer, then try again.";
+
+  /*
+   * "The API is switched off" arrives as a 403 whose message is a wall of prose
+   * containing a console link. It is a completely different problem from "you
+   * have not shared the file", and telling somebody to check their sharing when
+   * the API was never enabled sends them round in circles — so it is detected
+   * before anything else and passed through with its link intact.
+   */
+  if (message && /has not been used in project|is disabled/i.test(message)) {
+    return `The Google Sheets API is not switched on for this project yet. Google says: ${message}`;
+  }
 
   if (response.status === 404) {
-    return `No spreadsheet with that ID is visible to the service account. Share the sheet with its email address as a Viewer, then try again. (ID: ${sheetId})`;
+    // The id is echoed because a mistyped one is the other likely cause — but
+    // truncated, since somebody who pasted a whole console URL into the box
+    // gets an unreadable wall otherwise.
+    const shown = sheetId.length > 60 ? `${sheetId.slice(0, 57)}…` : sheetId;
+    return `No spreadsheet with that ID is visible to the service account. ${share} (Looked for: ${shown})`;
   }
   if (response.status === 403) {
-    return (
-      message ??
-      "Google refused access to that spreadsheet. Share it with the service account's email address."
-    );
+    return message ? `Google refused access: ${message}` : `Google refused access. ${share}`;
   }
   if (response.status === 400) {
     return message ?? "Google rejected the request — check the tab name.";
@@ -214,12 +235,28 @@ export interface SheetCheck {
   ok: boolean;
   message: string;
   tabs?: string[];
+  /**
+   * Who to share the sheet with.
+   *
+   * Returned whether the check passed or failed, because the moment you need it
+   * is the moment it did not work — and it is otherwise buried in a
+   * server-side environment variable nobody using the Settings screen can read.
+   */
+  serviceAccountEmail: string | null;
 }
 
 /** Proves the link works before anybody relies on it. Used by the Settings card. */
 export async function checkSheetAccess(sheetId: string | null): Promise<SheetCheck> {
+  const email = serviceAccount()?.client_email ?? null;
   const id = normaliseSheetId(sheetId);
-  if (!id) return { ok: false, message: "Enter a spreadsheet ID or URL first." };
+
+  if (!id) {
+    return {
+      ok: false,
+      message: "Enter a spreadsheet ID or URL first.",
+      serviceAccountEmail: email,
+    };
+  }
 
   try {
     const tabs = await listTabs(id);
@@ -227,11 +264,13 @@ export async function checkSheetAccess(sheetId: string | null): Promise<SheetChe
       ok: true,
       message: `Readable. ${tabs.length} tab${tabs.length === 1 ? "" : "s"}: ${tabs.join(", ")}.`,
       tabs,
+      serviceAccountEmail: email,
     };
   } catch (error) {
     return {
       ok: false,
       message: error instanceof Error ? error.message : "Could not read that spreadsheet.",
+      serviceAccountEmail: email,
     };
   }
 }
