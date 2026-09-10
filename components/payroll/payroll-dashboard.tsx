@@ -212,11 +212,17 @@ export function PayrollDashboard({
                 ))}
               </select>
 
+              {/* Importing is open to managers; invoicing and remittance are
+                  not. Pulling time is preparing the week for review, and it
+                  cannot restate anything already approved or invoiced — those
+                  rows are frozen against a re-import. Paying people is a
+                  different kind of act and stays with administrators. */}
+              <Button size="sm" onClick={importWeek} loading={busy === "import"}>
+                Import time
+              </Button>
+
               {isAdmin ? (
                 <>
-                  <Button size="sm" onClick={importWeek} loading={busy === "import"}>
-                    Import time
-                  </Button>
                   <Button
                     size="sm"
                     variant="primary"

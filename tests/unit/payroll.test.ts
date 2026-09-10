@@ -522,6 +522,10 @@ describe("safeguards", () => {
   });
 
   it("refuses to restate an approved week", () => {
+    // This is what carries the separation of duties now that managers may
+    // import. The role check used to stop a reviewer refreshing hours
+    // underneath their own review; this rule is what actually stops it, and it
+    // holds regardless of who pressed the button.
     expect(canRefreshFromImport({ managerStatus: "APPROVED", invoiceId: null })).toBe(false);
   });
 

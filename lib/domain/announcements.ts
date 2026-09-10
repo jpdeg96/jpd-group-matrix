@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-09-managers-import-time",
+    date: "Sep 9, 2026",
+    kind: "changed",
+    title: "Managers can import payroll time",
+    body: "Import time on the Payroll dashboard is open to managers as well as administrators, so pulling a week's Clockify hours no longer waits on one person. Nothing else moved: generating invoices and sending remittance are still administrator-only. A re-import cannot restate a row that has already been approved or invoiced — those are reported back as frozen and left exactly as they were — so importing can only refresh what nobody has signed off yet.",
+  },
+  {
     id: "2026-09-09-open-until-sent",
     date: "Sep 9, 2026",
     kind: "fixed",
