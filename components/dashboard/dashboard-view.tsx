@@ -92,6 +92,28 @@ type Scope = "OPEN" | "COMPLETED" | "STALE" | "ALL" | "AWAITING_C1";
  */
 type PendingWork = "SEATGEEK" | "TICKETDATA" | "AUDIT";
 
+/**
+ * Whether this board is finished with an event.
+ *
+ * Both halves are required, and each one alone was reported as a bug.
+ *
+ * Ticking Complete is not the end of the dashboard job — sending to C1 is — so
+ * an event that has been ticked but not sent is still open. Keying on the tick
+ * alone made the row disappear the moment it was ticked, taking the Send to C1
+ * button with it, and people had to switch to the Completed filter to find the
+ * event they were part-way through handing off.
+ *
+ * And an event that was sent and then *unticked* is open again, because
+ * unticking is how somebody says there is more to do. Keying on the status
+ * alone left those stranded under Completed.
+ *
+ * Mirrors the server's `open` filter in getDashboardStats. The two have to
+ * agree, or the count on a chip disagrees with the rows it shows.
+ */
+function isHandedOff(event: DashboardEventView): boolean {
+  return event.status !== "DASHBOARD" && event.completedAt !== null;
+}
+
 export function DashboardView({
   events: initialEvents,
   latestNotes: initialNotes,
@@ -242,7 +264,8 @@ export function DashboardView({
        *
        * ALL applies no filter at all — the one scope showing both together.
        */
-      const finished = event.completedAt !== null;
+      // Handed off *and* still marked finished. See `isHandedOff`.
+      const finished = isHandedOff(event);
       if (scope === "OPEN" && finished) return false;
       if (scope === "COMPLETED" && !finished) return false;
       if (scope === "STALE" && !isStaleCompletion(event.completedOn, today, stats.staleDays)) {
@@ -604,7 +627,7 @@ export function DashboardView({
 
   // The chip counts have to use the same predicate as the filter behind them,
   // or pressing one lands on a different number from the one you pressed.
-  const openCount = events.filter((event) => event.completedAt === null).length;
+  const openCount = events.filter((event) => !isHandedOff(event)).length;
   const awaitingC1Count = events.filter(
     (event) => event.completedAt !== null && event.status === "DASHBOARD",
   ).length;

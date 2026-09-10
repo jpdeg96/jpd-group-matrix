@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-09-open-until-sent",
+    date: "Sep 9, 2026",
+    kind: "fixed",
+    title: "Ticking Complete no longer makes the row disappear",
+    body: "On the Open filter, ticking Complete used to remove the event straight away — taking the Send to C1 button with it, so you had to switch to Completed to find the row you were part-way through handing off. An event now stays under Open until it has actually been sent to C1. Ticking Complete is not the end of the job on this board; sending is. Unticking still brings an event back to Open even after it has gone to C1, exactly as before. Your Open count will read higher than it did, by however many events are ticked but not yet sent — those are real outstanding work, and the Ready for C1 chip counts them on their own.",
+  },
+  {
     id: "2026-08-29-columns",
     date: "Aug 29, 2026",
     kind: "added",

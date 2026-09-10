@@ -1194,27 +1194,30 @@ export async function getDashboardStats(userId: string) {
   const today = await businessToday();
 
   /*
-   * "Open" is work whose Complete box is not ticked, on an event that has not
-   * happened yet.
+   * "Open" is work this board still owes something on.
    *
-   * Keyed on the completion rather than on the status, and the distinction is
-   * the whole point. Unticking Complete deliberately leaves an event in C1 —
-   * the review work already done on it must not be thrown away — so a
-   * status-based definition left the row counted as finished when the person
-   * who unticked it had just said it is not. The tick is what people are
-   * looking at and the tick is what this now follows.
+   * Not "the Complete box is unticked", and not "it has not reached C1" —
+   * either alone gets half the cases wrong, and both halves were reported as
+   * bugs by the people using it.
    *
-   * An event can therefore be outstanding here *and* progressing through C1 at
-   * the same time. That is not a contradiction: the Dashboard tracks the
-   * preparation, C1 tracks the review of it, and correcting the first does not
-   * undo the second.
+   * Ticking Complete is not the end of the dashboard job; sending to C1 is.
+   * Keying purely on the tick made a row vanish the instant it was ticked, so
+   * the send button went with it and people had to switch filters to find the
+   * event they were mid-way through handing off. Keying purely on the status
+   * left an event that had been *unticked* filed under Completed, with no way
+   * back onto the board.
+   *
+   * So an event stays open until it has been handed off *and* is still marked
+   * finished. Untick it and it returns, even though its review carries on in
+   * C1 — the Dashboard tracks the preparation, C1 tracks the review of it, and
+   * correcting the first does not undo the second.
    */
   const open = {
-    completedAt: null,
-    status: { not: "CANCELLED" },
+    status: { not: "CANCELLED" as const },
     archivedAt: null,
     eventDate: { gte: dbDateFromPlainDate(today) },
-  } as const;
+    OR: [{ status: "DASHBOARD" as const }, { completedAt: null }],
+  };
 
   const live = { archivedAt: null, eventDate: { gte: dbDateFromPlainDate(today) } };
 

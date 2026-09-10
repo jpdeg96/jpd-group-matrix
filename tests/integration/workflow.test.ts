@@ -1065,6 +1065,32 @@ describe("promotion into C1", () => {
       expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
     });
 
+    it("keeps a ticked-but-unsent event open, so the send button stays put", async () => {
+      // The whole reason Complete and Send to C1 are separate acts: ticking is
+      // not the end of the dashboard job. A row that vanished on the tick took
+      // its Send to C1 button with it.
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+
+      const before = await getDashboardStats(worker.effective.id);
+      await updateEvent(event.id, { complete: true }, worker);
+      const after = await getDashboardStats(worker.effective.id);
+
+      expect(after.total).toBe(before.total);
+    });
+
+    it("drops an event from open once it is actually handed off", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await updateEvent(event.id, { complete: true }, worker);
+
+      const beforeSend = await getDashboardStats(worker.effective.id);
+      await sendToC1(event.id, manager);
+      const afterSend = await getDashboardStats(worker.effective.id);
+
+      expect(afterSend.total).toBe(beforeSend.total - 1);
+    });
+
     it("counts an unticked event as open again without pulling it out of C1", async () => {
       const event = await makeEvent(30);
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
