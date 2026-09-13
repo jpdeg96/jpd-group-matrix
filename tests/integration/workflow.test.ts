@@ -1026,6 +1026,30 @@ describe("promotion into C1", () => {
   /* ---------------------------------------------------------------------- */
 
   describe("completion and in-progress", () => {
+    it("leaves a C1 reviewer alone when somebody re-ticks Complete", async () => {
+      /*
+       * The reported bug: a reviewer's badge in C1 vanished a second after they
+       * pressed Start, seemingly at random. The cause was somebody else on the
+       * Dashboard unticking and re-ticking Complete — a fresh null → set
+       * transition, which cleared presence for the event in *both* contexts.
+       *
+       * Ticking Complete says nothing about the review, so it must not evict
+       * anyone from it.
+       */
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await completeAndSend(event.id, manager);
+
+      await startPresence(event.id, "C1", worker);
+      expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
+
+      // Somebody on the Dashboard corrects the tick, then puts it back.
+      await updateEvent(event.id, { complete: false }, manager);
+      await updateEvent(event.id, { complete: true }, manager);
+
+      expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
+    });
+
     it("clears everyone's in-progress badge when the event is completed", async () => {
       const event = await makeEvent(30);
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);

@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-13-c1-presence-eviction",
+    date: "Sep 13, 2026",
+    kind: "fixed",
+    title: "Start in C1 no longer drops out a second later",
+    body: "Pressing Start in C1 could show you as in progress and then clear it almost immediately, seemingly at random. The cause was somebody else entirely: ticking Complete on the Dashboard cleared the in-progress badge for that event on both screens, so anyone reviewing it in C1 was thrown out. It became common recently because unticking and re-ticking Complete is now an ordinary thing to do, and every re-tick fired it. Ticking Complete now only clears the badge on the Dashboard, where it means the work it describes is finished. A claim in C1 is a claim on the review and is left alone.",
+  },
+  {
     id: "2026-09-09-managers-import-time",
     date: "Sep 9, 2026",
     kind: "changed",

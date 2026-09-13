@@ -532,7 +532,7 @@ export async function updateEvent(
   }
 
   /*
-   * Ticking Complete stops the clock on it.
+   * Ticking Complete stops the clock on the *dashboard* work.
    *
    * "In progress" and "finished" are contradictory claims about the same row,
    * and the one that gets left behind is always the first: people tick Complete
@@ -540,6 +540,16 @@ export async function updateEvent(
    * still working on an event that was closed hours ago. Since the whole value
    * of that indicator is that it can be trusted, the completion clears it —
    * for everybody on the row, not just whoever ticked the box.
+   *
+   * DASHBOARD only, and that qualification is load-bearing. Ticking Complete
+   * says nothing about the review: somebody can be part-way through a checkpoint
+   * in C1 on an event whose dashboard tick is being corrected by somebody else
+   * entirely, and evicting them says they stopped working when they did not.
+   *
+   * This went unnoticed until unticking-and-reticking became an ordinary thing
+   * to do. A re-tick is a fresh null → set transition, so it fired this clear
+   * every time, and the reviewer in C1 watched their badge vanish for reasons
+   * that had nothing to do with them.
    */
   const completing = input.complete === true && existing.completedAt === null;
 
@@ -550,7 +560,7 @@ export async function updateEvent(
       // leaves an event marked finished with somebody still shown working on it.
       await prisma.$transaction(async (tx) => {
         await tx.event.update({ where: { id: eventId }, data });
-        await tx.presence.deleteMany({ where: { eventId } });
+        await tx.presence.deleteMany({ where: { eventId, context: "DASHBOARD" } });
       });
     } else {
       await prisma.event.update({ where: { id: eventId }, data });
@@ -659,8 +669,9 @@ export async function sendToC1(
 
     // Sending to C1 ends a claim on the dashboard row: the work that claim
     // described is done. Released here rather than in the browser so it holds
-    // however the send arrived.
-    await tx.presence.deleteMany({ where: { eventId } });
+    // however the send arrived — and scoped to that screen, because a claim in
+    // C1 is a claim on the review, which is only just beginning.
+    await tx.presence.deleteMany({ where: { eventId, context: "DASHBOARD" } });
 
     return created;
   });
