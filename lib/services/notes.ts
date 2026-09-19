@@ -15,6 +15,7 @@ import { assertCanWorkOn, auditActor, type ActorContext } from "@/lib/auth/actor
 import { findMentions } from "@/lib/domain/mentions";
 import { recordAudit } from "./audit";
 import { notify } from "./notifications";
+import { loadHolders } from "./holders";
 
 export interface NoteView {
   id: string;
@@ -120,13 +121,12 @@ export async function addNote(
     throw validationError(`A note must be ${MAX_NOTE_LENGTH} characters or fewer.`);
   }
 
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { id: true, assigneeId: true },
-  });
-  if (!event) throw notFound("That event no longer exists.");
+  // Notes live on the event and show on both screens, so whoever holds it on
+  // either — preparing it on the Dashboard, or reviewing it in C1 — may write.
+  const holders = await loadHolders(eventId);
+  if (!holders) throw notFound("That event no longer exists.");
 
-  assertCanWorkOn(actor, event.assigneeId, "add a note to");
+  assertCanWorkOn(actor, holders, "add a note to");
 
   /*
    * Mentions are matched against the real list of people, not a regex.

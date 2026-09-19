@@ -146,15 +146,45 @@ export function C1View({
 
   const presence = usePresence("C1", currentUser.id);
 
-  /**
-   * Whether this person may touch the working state of a row. Same rule as the
-   * Dashboard, and the same reasoning: the stage tick, the flag and the notes
-   * all record who did the work, so they belong to whoever holds the event.
+  /*
+   * What this person may do on a row — each rule mirroring the server's exactly.
+   *
+   * The failure these exist to prevent is a control that is *looser* than the
+   * server. Then the click is offered, the optimistic update paints, the server
+   * refuses, and the change rolls back a moment later — which is precisely the
+   * "In progress for a second, then gone" people saw. A control stricter than
+   * the server merely hides something; a looser one lies.
+   *
+   * A C1 row has two holders: the reviewer on its current stage (the Assigned
+   * column) and whoever prepared it on the Dashboard. They are different people
+   * often enough that treating either as the only owner broke half the screen.
    */
-  const mayWorkOn = React.useCallback(
-    (assigneeId: string | null) =>
-      canAssign || assigneeId === null || assigneeId === currentUser.id,
-    [canAssign, currentUser.id],
+  const self = currentUser.id;
+
+  /** Start: the reviewer only. Unassigned is refused — claim the stage first. */
+  const mayStart = React.useCallback(
+    (row: C1RowView) => canAssign || row.assigneeId === self,
+    [canAssign, self],
+  );
+
+  /**
+   * Notes and flags live on the event and show on both screens, so either
+   * holder may write them. "Unassigned" means the Dashboard assignee is empty,
+   * exactly as the server defines it.
+   */
+  const mayWrite = React.useCallback(
+    (row: C1RowView) =>
+      canAssign ||
+      row.eventAssigneeId === null ||
+      row.eventAssigneeId === self ||
+      row.assigneeId === self,
+    [canAssign, self],
+  );
+
+  /** The Done tick: the reviewer, or anybody while the stage is unclaimed. */
+  const mayTick = React.useCallback(
+    (row: C1RowView) => canAssign || row.assigneeId === null || row.assigneeId === self,
+    [canAssign, self],
   );
 
   // Somebody else ticked a stage, or an event arrived from the Dashboard.
@@ -744,7 +774,7 @@ export function C1View({
                         latest={notes[row.eventId] ?? null}
                         currentUserId={currentUser.id}
                         isAdmin={currentUser.role === "ADMIN"}
-                        canWrite={mayWorkOn(row.assigneeId)}
+                        canWrite={mayWrite(row)}
                         mentionable={activeUsers}
                         onCountChange={(eventId, delta) =>
                           setNoteCounts((current) => ({
@@ -774,7 +804,7 @@ export function C1View({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === row.eventId}
-                        canStart={mayWorkOn(row.assigneeId)}
+                        canStart={mayStart(row)}
                         assigned={row.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
@@ -837,7 +867,7 @@ export function C1View({
                         flagFixedAt={row.flagFixedAt}
                         flagFixedByName={row.flagFixedByName}
                         canResolve={canAssign}
-                        canWork={mayWorkOn(row.assigneeId)}
+                        canWork={mayWrite(row)}
                         onChanged={() => router.refresh()}
                       />
                     </Td> : null}
@@ -846,7 +876,7 @@ export function C1View({
                       <Checkbox
                         label={`Mark ${reviewStageLabel(row.offsetDays)} done`}
                         checked={false}
-                        disabled={isPending(row.stageId, "done") || !mayWorkOn(row.assigneeId)}
+                        disabled={isPending(row.stageId, "done") || !mayTick(row)}
                         pending={isPending(row.stageId, "done")}
                         onChange={(event) => {
                           if (!event.target.checked) return;

@@ -1095,7 +1095,11 @@ export function DashboardView({
                         working={working}
                         others={others}
                         pending={presence.pendingEventId === event.id}
-                        canStart={mayWork}
+                        // Not `mayWork`: that one leaves unassigned rows open,
+                        // which is right for the checkboxes and wrong here — the
+                        // server refuses Start on an unclaimed row, so offering
+                        // it painted "In progress" and then took it back.
+                        canStart={canManage || event.assigneeId === currentUser.id}
                         assigned={event.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />

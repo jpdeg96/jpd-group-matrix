@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-18-c1-start-for-reviewers",
+    date: "Sep 18, 2026",
+    kind: "fixed",
+    title: "Start works in C1 on every row that is yours",
+    body: "If you are assigned to a row in C1, Start now works on it — even when somebody else prepared that event on the Dashboard. Before, Start checked who held the event on the Dashboard rather than who holds the review in C1, so reviewers were refused on roughly half their rows, and the badge flashed on and then disappeared. Managers never saw it because they can start anything. The same goes for notes and flags in C1: whoever holds the review can write them. Start in C1 does need you to be the one assigned in C1's own Assigned column — claim the row there first if it is empty. On the Dashboard, Start is now only offered on rows assigned to you, rather than being offered and then refused.",
+  },
+  {
     id: "2026-09-13-c1-presence-eviction",
     date: "Sep 13, 2026",
     kind: "fixed",

@@ -58,7 +58,18 @@ export interface C1RowView {
    */
   scheduleDrifted: boolean;
 
+  /**
+   * The assignee on the review stage this row shows — what C1's Assigned
+   * column means, and who may press Start here.
+   */
   assigneeId: string | null;
+  /**
+   * Whoever holds the event on the Dashboard. Often somebody else. Carried
+   * so the notes and flag controls can offer exactly what the server allows
+   * — either holder may write them — rather than guessing from the reviewer
+   * alone and refusing a click the screen invited.
+   */
+  eventAssigneeId: string | null;
   assigneeName: string | null;
   assigneeColor: string | null;
 
@@ -135,6 +146,7 @@ function toRow(event: C1Event, config: ScheduleConfig): C1RowView | null {
     expectedReviewDue: drift.expected,
     scheduleDrifted: drift.drifted,
     assigneeId: stage.assigneeId,
+    eventAssigneeId: event.assigneeId,
     assigneeName: stage.assignee?.displayName ?? null,
     assigneeColor: stage.assignee?.color ?? null,
     done: false,

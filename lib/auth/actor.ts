@@ -80,15 +80,32 @@ export function assertCanAssign(
  *
  * `verb` completes the sentence "You can only … an event assigned to you", so
  * the refusal names the thing that was actually refused.
+ *
+ * ## Two holders
+ *
+ * An event is held on the Dashboard by one person and, once in C1, its current
+ * review stage is held by another — often the same, frequently not. Notes and
+ * flags live on the event and appear on both screens, so either holder may
+ * write them. Checking only the Dashboard assignee refused the reviewer on the
+ * very row C1 showed as theirs.
+ *
+ * `stageAssigneeId` is omitted for work that belongs to the Dashboard alone —
+ * the checkboxes — where the reviewer has no claim.
+ *
+ * "Unassigned" still means the *Dashboard* assignee is empty, exactly as it did
+ * before a second holder was considered, so nobody loses access they had.
  */
 export function assertCanWorkOn(
   actor: ActorContext,
-  assigneeId: string | null,
+  holders: { eventAssigneeId: string | null; stageAssigneeId?: string | null },
   verb: string,
 ): void {
   if (canAssignOthers(actor.effective.role)) return;
-  if (assigneeId === null) return;
-  if (assigneeId === actor.effective.id) return;
+
+  const self = actor.effective.id;
+  if (holders.eventAssigneeId === null) return;
+  if (holders.eventAssigneeId === self) return;
+  if (holders.stageAssigneeId === self) return;
 
   throw forbidden(
     `You can only ${verb} an event assigned to you. Ask a manager to reassign it if it should be yours.`,
@@ -107,6 +124,12 @@ export function assertCanWorkOn(
  * Only *starting* is guarded. Stopping is always allowed, because a claim can
  * outlive the assignment that justified it — a manager reassigning a row must
  * not strand its previous owner with an indicator they cannot clear.
+ *
+ * `assigneeId` is whoever holds the event *on the screen being started from*:
+ * the Dashboard assignee for the Dashboard, the current review stage's
+ * assignee for C1. The caller chooses, because only it knows which screen this
+ * is — and passing the Dashboard assignee for a C1 start refused every
+ * reviewer who had not also prepared the event.
  */
 export function assertCanStartWork(
   actor: ActorContext,

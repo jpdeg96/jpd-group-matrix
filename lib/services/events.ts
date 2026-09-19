@@ -34,6 +34,7 @@ import { canAssignOthers } from "@/lib/domain/constants";
 import { businessToday, getScheduleConfig, getSettings } from "./settings";
 import { recordAudit } from "./audit";
 import { managerIds, notify } from "./notifications";
+import { loadHolders, type EventHolders } from "./holders";
 
 /**
  * Fields that describe *what the event is*, as opposed to the operational state
@@ -456,7 +457,7 @@ export async function updateEvent(
   ] as const;
 
   if (WORKING_FIELDS.some((field) => input[field] !== undefined)) {
-    assertCanWorkOn(actor, existing.assigneeId, "tick a box on");
+    assertCanWorkOn(actor, { eventAssigneeId: existing.assigneeId }, "tick a box on");
   }
 
   const data: Prisma.EventUncheckedUpdateInput = {};
@@ -979,7 +980,7 @@ export async function flagEvent(
   });
   if (!existing) throw notFound("That event no longer exists.");
 
-  assertCanWorkOn(actor, existing.assigneeId, "raise a flag on");
+  assertCanWorkOn(actor, await holdersFor(eventId), "raise a flag on");
 
   await prisma.$transaction(async (tx) => {
     await tx.event.update({
@@ -1061,7 +1062,7 @@ export async function markFlagFixed(
     throw conflict("This flag is already waiting on a manager to check it.");
   }
 
-  assertCanWorkOn(actor, existing.assigneeId, "resolve the flag on");
+  assertCanWorkOn(actor, await holdersFor(eventId), "resolve the flag on");
 
   await prisma.$transaction(async (tx) => {
     await tx.event.update({
@@ -1280,4 +1281,11 @@ export async function getDashboardStats(userId: string) {
     staleDays: STALE_COMPLETION_DAYS,
     timeZone: settings.timeZone,
   };
+}
+
+/** Both holders of an event, for work that belongs to either screen. */
+async function holdersFor(eventId: string): Promise<EventHolders> {
+  const holders = await loadHolders(eventId);
+  if (!holders) throw notFound("That event no longer exists.");
+  return holders;
 }

@@ -111,6 +111,12 @@ suite("event workflow", () => {
       admin,
     );
 
+  /** Assign the event's current review stage — how somebody takes a C1 row. */
+  const claimReview = async (eventId: string, actor: ActorContext) => {
+    const stage = (await stagesFor(eventId)).find((s) => s.status === "PENDING")!;
+    await updateStage(stage.id, { assigneeId: actor.effective.id }, actor);
+  };
+
   const stagesFor = (eventId: string) =>
     prisma.reviewStage.findMany({ where: { eventId }, orderBy: { offsetDays: "desc" } });
 
@@ -1026,6 +1032,86 @@ describe("promotion into C1", () => {
   /* ---------------------------------------------------------------------- */
 
   describe("completion and in-progress", () => {
+    /*
+     * The reported bug: base users could not Start on roughly half of C1, and
+     * managers never saw it. C1's Assigned column is the *review stage's*
+     * assignee, but Start checked the *Dashboard* assignee — so a reviewer who
+     * had not also prepared the event was refused on the very row C1 told them
+     * was theirs. Managers bypass the check, which is why only users hit it.
+     */
+    describe("a C1 reviewer who did not prepare the event", () => {
+      async function reviewedByWorkerPreparedBy(preparer: ActorContext | null) {
+        const event = await makeEvent(30);
+        await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+        await completeAndSend(event.id, manager);
+        await updateEvent(
+          event.id,
+          { assigneeId: preparer?.effective.id ?? null },
+          manager,
+        );
+        // The worker claims the current review stage in C1.
+        const stage = (await stagesFor(event.id))[0]!;
+        await updateStage(stage.id, { assigneeId: worker.effective.id }, worker);
+        return event;
+      }
+
+      it("may Start in C1 when somebody else prepared it", async () => {
+        const event = await reviewedByWorkerPreparedBy(manager);
+        await startPresence(event.id, "C1", worker);
+        expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
+      });
+
+      it("may Start in C1 when nobody holds it on the Dashboard", async () => {
+        const event = await reviewedByWorkerPreparedBy(null);
+        await startPresence(event.id, "C1", worker);
+        expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
+      });
+
+      it("may add a note and raise a flag from C1", async () => {
+        const event = await reviewedByWorkerPreparedBy(manager);
+        await addNote(event.id, "Section 112 checked.", worker);
+        await flagEvent(event.id, "Counts disagree", worker);
+        expect((await listNotes(event.id)).length).toBe(1);
+      });
+
+      it("still may not Start from the Dashboard, which is not theirs", async () => {
+        const event = await reviewedByWorkerPreparedBy(manager);
+        await expect(startPresence(event.id, "DASHBOARD", worker)).rejects.toThrow(
+          /assigned to you/i,
+        );
+      });
+
+      it("still may not tick the Dashboard boxes, which are not theirs", async () => {
+        const event = await reviewedByWorkerPreparedBy(manager);
+        await expect(
+          updateEvent(event.id, { seatGeekChecked: true }, worker),
+        ).rejects.toThrow(/assigned to you/i);
+      });
+    });
+
+    it("refuses Start in C1 to somebody who holds neither the review nor the event", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: manager.effective.id }, manager);
+      await completeAndSend(event.id, manager);
+      const stage = (await stagesFor(event.id))[0]!;
+      await updateStage(stage.id, { assigneeId: manager.effective.id }, manager);
+
+      await expect(startPresence(event.id, "C1", worker)).rejects.toThrow(
+        /assigned to you/i,
+      );
+    });
+
+    it("refuses Start in C1 on an unclaimed review stage", async () => {
+      const event = await makeEvent(30);
+      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
+      await completeAndSend(event.id, manager);
+
+      // Holding the event on the Dashboard is not a claim on the review.
+      await expect(startPresence(event.id, "C1", worker)).rejects.toThrow(
+        /assign this to yourself/i,
+      );
+    });
+
     it("leaves a C1 reviewer alone when somebody re-ticks Complete", async () => {
       /*
        * The reported bug: a reviewer's badge in C1 vanished a second after they
@@ -1040,6 +1126,9 @@ describe("promotion into C1", () => {
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
       await completeAndSend(event.id, manager);
 
+      // Claim the review first — C1 Start belongs to the stage's assignee,
+      // not to whoever prepared the event on the Dashboard.
+      await claimReview(event.id, worker);
       await startPresence(event.id, "C1", worker);
       expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
 
@@ -1071,22 +1160,13 @@ describe("promotion into C1", () => {
       await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
       await completeAndSend(event.id, manager);
 
+      // Claim the review first — C1 Start belongs to the stage's assignee,
+      // not to whoever prepared the event on the Dashboard.
+      await claimReview(event.id, worker);
       await startPresence(event.id, "C1", worker);
 
       const live = await listPresence("C1");
       expect(live.get(event.id)).toHaveLength(1);
-    });
-
-    it("still allows Start in C1 on a completed event", async () => {
-      // Every event in C1 carries a completion — that is what let it be sent
-      // there — so applying the dashboard rule to C1 refused Start on every
-      // single row in it.
-      const event = await makeEvent(30);
-      await updateEvent(event.id, { assigneeId: worker.effective.id }, worker);
-      await completeAndSend(event.id, manager);
-
-      await startPresence(event.id, "C1", worker);
-      expect((await listPresence("C1")).get(event.id)).toHaveLength(1);
     });
 
     it("keeps a ticked-but-unsent event open, so the send button stays put", async () => {

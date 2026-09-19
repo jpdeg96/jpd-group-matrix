@@ -12,6 +12,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { conflict, notFound } from "@/lib/errors";
 import { assertCanStartWork, type ActorContext } from "@/lib/auth/actor";
+import { loadHolders } from "./holders";
 import { plainDateFromDbDate, type PlainDate } from "@/lib/date/plain-date";
 import { getSettings } from "./settings";
 
@@ -244,13 +245,15 @@ export async function startPresence(
   context: PresenceContextValue,
   actor: ActorContext,
 ): Promise<void> {
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    select: { id: true, assigneeId: true, completedAt: true },
-  });
+  const event = await loadHolders(eventId);
   if (!event) throw notFound("That event no longer exists.");
 
-  assertCanStartWork(actor, event.assigneeId);
+  // Whoever holds it on *this* screen. C1's Assigned column is the review
+  // stage's assignee, and that is who may start work there.
+  assertCanStartWork(
+    actor,
+    context === "C1" ? event.stageAssigneeId : event.eventAssigneeId,
+  );
 
   /*
    * Starting dashboard work on something already recorded as finished.
