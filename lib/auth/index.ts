@@ -111,6 +111,16 @@ if (googleEnabled) {
 
 export const authConfig: NextAuthConfig = {
   providers,
+  /*
+   * Twelve hours — of *inactivity*, which is not what this value means on its
+   * own. The cookie is only re-issued when /api/auth/session is read; there is
+   * no middleware and no client session provider, and a server component can
+   * read a cookie but not rewrite it. Left alone, that made this a hard cap
+   * from sign-in, and people were signed out mid-task twelve hours after they
+   * happened to log in. `SessionKeepAlive` in the app shell reads the endpoint
+   * while somebody is actually active, which is what turns this into an idle
+   * limit. Remove that component and this silently becomes a hard cap again.
+   */
   session: { strategy: "jwt", maxAge: 60 * 60 * 12 },
   pages: {
     signIn: "/sign-in",

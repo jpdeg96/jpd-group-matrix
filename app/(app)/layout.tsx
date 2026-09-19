@@ -3,6 +3,7 @@ import { getActorContext } from "@/lib/auth/guards";
 import { AppNav } from "@/components/shell/app-nav";
 import { ImpersonationBanner } from "@/components/shell/impersonation-banner";
 import { WorkingBanner } from "@/components/shell/working-banner";
+import { SessionKeepAlive } from "@/components/shell/session-keepalive";
 import { AnnouncementsDialog } from "@/components/shell/announcements-dialog";
 import { getSettings } from "@/lib/services/settings";
 import { businessToday } from "@/lib/services/settings";
@@ -58,6 +59,10 @@ export default async function AppLayout({
       {/* Directly under the nav so a live claim is visible on every screen,
           not only on the table that made it. */}
       <WorkingBanner />
+
+      {/* In the shell so it runs on every signed-in screen: without it a
+          session ends twelve hours after sign-in however active its owner is. */}
+      <SessionKeepAlive />
 
       {/* Keyed to the effective user so viewing-as somebody does not mark the
           notes read on their behalf. */}

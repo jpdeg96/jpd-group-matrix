@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-18-stay-signed-in",
+    date: "Sep 18, 2026",
+    kind: "fixed",
+    title: "You are no longer signed out mid-shift",
+    body: "Signing in lasted exactly twelve hours from the moment you logged in, however busy you were — so somebody who signed in the evening before could be thrown out halfway through the next morning, which looked like a random logout. Your session now renews itself while you are using the site, so you stay signed in for as long as you are working. It still ends after twelve hours of not touching anything, so a computer left unattended does not stay signed in indefinitely.",
+  },
+  {
     id: "2026-09-18-c1-start-for-reviewers",
     date: "Sep 18, 2026",
     kind: "fixed",
