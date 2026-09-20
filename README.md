@@ -498,8 +498,13 @@ and on the sign-in screen (44px).
 
 1. Provision Postgres (Neon/Supabase). Set `DATABASE_URL` and `DIRECT_URL`.
 2. Import the repo into Vercel; set every variable from the table above.
-3. `npm run db:deploy` against production.
-4. Deploy. Confirm the hourly cron under **Settings → Cron Jobs**.
+3. Deploy. **The build applies migrations itself** — `build` runs
+   `prisma migrate deploy` before `next build`, so the schema is always in step
+   with the code being deployed rather than depending on somebody remembering
+   to run it first. Getting that order wrong is not a partial failure: code
+   that selects a column the database does not have yet takes down every page,
+   because settings are read on essentially every request.
+4. Confirm the hourly cron under **Settings → Cron Jobs**.
 5. Create the first administrator directly — there is no public registration.
    Generate a hash with
    `node -e "console.log(require('bcryptjs').hashSync('your-password',12))"`:
@@ -516,7 +521,7 @@ single-vendor alternative at roughly $14/mo.
 ### Self-hosted
 
 ```bash
-npm ci && npm run db:deploy && npm run build && npm start
+npm ci && npm run build && npm start   # build migrates, then compiles
 npm run scheduler   # separate process for housekeeping
 ```
 
