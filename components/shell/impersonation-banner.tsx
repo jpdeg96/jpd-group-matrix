@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { UserPill } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
-import { roleLabel, type UserRoleValue } from "@/lib/domain/constants";
+
 
 /**
  * Permanent bar shown for the whole time an administrator is viewing as
@@ -21,7 +21,7 @@ export function ImpersonationBanner({
   viewingAs,
   realName,
 }: {
-  viewingAs: { id: string; displayName: string; color: string; role: UserRoleValue };
+  viewingAs: { id: string; displayName: string; color: string; roleName: string };
   realName: string;
 }) {
   const router = useRouter();
@@ -56,7 +56,7 @@ export function ImpersonationBanner({
         </span>
         Viewing as
         <UserPill name={viewingAs.displayName} color={viewingAs.color} />
-        <span className="opacity-80">({roleLabel(viewingAs.role)})</span>
+        <span className="opacity-80">({viewingAs.roleName})</span>
       </span>
 
       <span className="opacity-80">

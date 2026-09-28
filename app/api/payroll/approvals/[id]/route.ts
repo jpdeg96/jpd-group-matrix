@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireManager } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { setApprovalStatus } from "@/lib/services/payroll";
 import { approvalPatchSchema } from "@/lib/validation/payroll-schemas";
 
@@ -19,7 +19,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   return handle(async () => {
-    const actor = await requireManager();
+    const actor = await requirePermission("payroll.approve");
     const { id } = await context.params;
     const input = approvalPatchSchema.parse(await readJson(request));
 

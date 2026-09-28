@@ -1,5 +1,5 @@
 import { handle, jsonOk } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { validationError } from "@/lib/errors";
 import { isDiscordConfigured, notify } from "@/lib/notify/discord";
 import { testMessage } from "@/lib/notify/messages";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST() {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("settings.manage");
 
     if (!isDiscordConfigured()) {
       throw validationError(

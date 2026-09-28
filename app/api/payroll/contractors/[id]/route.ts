@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { deactivateContractor, updateContractor } from "@/lib/services/contractors";
 import { contractorSchema } from "@/lib/validation/payroll-schemas";
 
@@ -12,7 +12,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("payroll.manageContractors");
     const { id } = await context.params;
     const input = contractorSchema.parse(await readJson(request));
 
@@ -38,7 +38,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("payroll.manageContractors");
     const { id } = await context.params;
     return jsonOk({ contractor: await deactivateContractor(id, actor) });
   });

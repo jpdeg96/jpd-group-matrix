@@ -1,18 +1,18 @@
 import { redirect } from "next/navigation";
 import { getActorContext } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/prisma";
-import { canAssignOthers } from "@/lib/domain/constants";
 import { listInvoices } from "@/lib/services/invoices";
 import { isArchivingEnabled } from "@/lib/services/invoice-archive";
 import { plainDateFromDbDate } from "@/lib/date/plain-date";
 import { InvoicesView } from "@/components/payroll/invoices-view";
+import { can } from "@/lib/auth/actor";
 
 export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
   const actor = await getActorContext();
   if (!actor) redirect("/sign-in");
-  if (!canAssignOthers(actor.effective.role)) redirect("/dashboard");
+  if (!can(actor, "payroll.view")) redirect("/dashboard");
 
   const [invoices, driveEnabled, contractors, periods] = await Promise.all([
     listInvoices(),

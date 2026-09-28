@@ -13,27 +13,35 @@ import { UserChip } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
-import { roleLabel, type UserRoleValue } from "@/lib/domain/constants";
+
 
 interface NavUser {
   id: string;
   displayName: string;
   color: string;
-  role: UserRoleValue;
+  /** A role key — the three built-ins, or a custom role's own. */
+  role: string;
+  /** What the role is called on screen. */
+  roleName: string;
+  /** Resolved grants, so the nav offers exactly what the routes will allow. */
+  permissions: readonly string[];
 }
 
+/**
+ * Each tab names the permission that opens it, so the nav and the routes
+ * cannot drift: unticking a box in the role editor removes the tab *and*
+ * closes the route, rather than hiding a door that is still unlocked.
+ */
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Event Dashboard" },
   { href: "/c1", label: "C1" },
   // Everyone: a regular user sees only their own figures, which the page and
   // the API both scope from the session rather than from the request.
   { href: "/metrics", label: "Metrics" },
-  // Managers approve weeks; only administrators can generate invoices or
-  // record payments, which the payroll screens enforce themselves.
-  { href: "/payroll", label: "Payroll", managerOnly: true },
-  { href: "/audit", label: "Audit Log", managerOnly: true },
-  { href: "/users", label: "Users", adminOnly: true },
-  { href: "/settings", label: "Settings", adminOnly: true },
+  { href: "/payroll", label: "Payroll", permission: "payroll.view" },
+  { href: "/audit", label: "Audit Log", permission: "audit.view" },
+  { href: "/users", label: "Users", permission: "users.manage" },
+  { href: "/settings", label: "Settings", permission: "settings.manage" },
 ] as const;
 
 export function AppNav({
@@ -49,7 +57,7 @@ export function AppNav({
   user: NavUser;
   realUser: NavUser;
   isImpersonating: boolean;
-  impersonationTargets: Array<{ id: string; displayName: string; color: string; role: UserRoleValue }>;
+  impersonationTargets: Array<{ id: string; displayName: string; color: string; roleName: string }>;
   siteName: string;
   /** Resolved server-side so a missing PNG never 404s in the browser. */
   logoSrc: string;
@@ -58,16 +66,13 @@ export function AppNav({
 }) {
   const pathname = usePathname();
 
-  // Nav visibility follows the *effective* user, so viewing as a regular user
-  // genuinely shows their application rather than an admin's.
-  const canSeeAdmin = user.role === "ADMIN";
-  const canSeeManager = user.role === "ADMIN" || user.role === "MANAGER";
+  // Nav visibility follows the *effective* user, so viewing as somebody else
+  // genuinely shows their application rather than your own.
+  const held = React.useMemo(() => new Set(user.permissions), [user.permissions]);
 
-  const navItems = NAV_ITEMS.filter((item) => {
-    if ("adminOnly" in item && item.adminOnly) return canSeeAdmin;
-    if ("managerOnly" in item && item.managerOnly) return canSeeManager;
-    return true;
-  });
+  const navItems = NAV_ITEMS.filter(
+    (item) => !("permission" in item) || held.has(item.permission),
+  );
 
   return (
     <header
@@ -123,7 +128,7 @@ export function AppNav({
           <NotificationBell />
 
           {/* Managers and above only — the endpoint enforces the same rule. */}
-          {canSeeManager ? <TeamPresenceWidget /> : null}
+          {held.has("presence.viewTeam") ? <TeamPresenceWidget /> : null}
 
           <ClockifyWidget />
 
@@ -146,7 +151,7 @@ export function AppNav({
 
           <ThemeToggle className="hidden sm:inline-flex" />
 
-          {realUser.role === "ADMIN" && !isImpersonating ? (
+          {realUser.permissions.includes("impersonate") && !isImpersonating ? (
             <ViewAsMenu targets={impersonationTargets} />
           ) : null}
 
@@ -155,7 +160,7 @@ export function AppNav({
               <UserChip name={user.displayName} color={user.color} />
             </div>
             <div className="text-[10.5px]" style={{ color: "var(--ink-subtle)" }}>
-              {roleLabel(user.role)}
+              {user.roleName}
             </div>
           </div>
 
@@ -177,7 +182,7 @@ export function AppNav({
 function ViewAsMenu({
   targets,
 }: {
-  targets: Array<{ id: string; displayName: string; color: string; role: UserRoleValue }>;
+  targets: Array<{ id: string; displayName: string; color: string; roleName: string }>;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -260,7 +265,7 @@ function ViewAsMenu({
             >
               <UserChip name={target.displayName} color={target.color} />
               <span className="text-[10.5px]" style={{ color: "var(--ink-subtle)" }}>
-                {roleLabel(target.role)}
+                {target.roleName}
               </span>
             </button>
           ))}

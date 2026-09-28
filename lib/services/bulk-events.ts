@@ -17,8 +17,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { conflict, forbidden, validationError } from "@/lib/errors";
-import { auditActor, type ActorContext } from "@/lib/auth/actor";
-import { canAssignOthers } from "@/lib/domain/constants";
+import { auditActor, can, type ActorContext } from "@/lib/auth/actor";
+
 import {
   plainDateFromDbDate,
   formatPlainDateWithWeekday,
@@ -92,8 +92,8 @@ export interface BulkPlan {
  * not be reachable by a path that forgot.
  */
 function assertMayBulkEdit(actor: ActorContext): void {
-  if (!canAssignOthers(actor.effective.role)) {
-    throw forbidden("Only managers and administrators can make bulk changes.");
+  if (!can(actor, "events.bulkEdit")) {
+    throw forbidden("You do not have permission to make bulk changes.");
   }
 }
 

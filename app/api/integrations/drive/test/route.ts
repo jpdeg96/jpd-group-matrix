@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { validationError } from "@/lib/errors";
 import { checkDriveAccess, DriveError, isDriveConfigured } from "@/lib/services/google-drive";
 import { normaliseDriveFolderId } from "@/lib/services/settings";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    await requireAdmin();
+    await requirePermission("settings.manage");
 
     const input = driveTestSchema.parse(await readJson(request));
 

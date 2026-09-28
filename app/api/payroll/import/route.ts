@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireManager } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { importPayPeriod } from "@/lib/services/payroll";
 import { importSchema } from "@/lib/validation/payroll-schemas";
 import { businessToday } from "@/lib/services/settings";
@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireManager();
+    const actor = await requirePermission("payroll.importTime");
     const input = importSchema.parse(await readJson(request));
 
     // Any date inside the week works — the service resolves it to that week's

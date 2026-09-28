@@ -18,6 +18,7 @@ export type AuditEntityType =
   | "EVENT_NOTE"
   | "EVENT_TYPE"
   | "USER"
+  | "ROLE"
   | "SETTINGS"
   | "IMPERSONATION"
   | "MAINTENANCE"

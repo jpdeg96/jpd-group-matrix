@@ -11,6 +11,7 @@ import { inflateSync } from "node:zlib";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/db/prisma";
+import { isPermission } from "@/lib/domain/permissions";
 import {
   createManualInvoice,
   generateInvoicesForPeriod,
@@ -32,7 +33,22 @@ async function makeActor(): Promise<ActorContext> {
   const user = await prisma.user.create({
     data: { email: "manager@jpdgroup.net", displayName: "Manager", role: "MANAGER", color: "#2563eb" },
   });
-  const actor = { id: user.id, email: user.email, displayName: user.displayName, role: "MANAGER" as const, color: user.color, theme: null };
+    // Grants read from the seeded role, so this actor can do exactly what a
+  // Manager can do in the application.
+  const role = await prisma.role.findUniqueOrThrow({
+    where: { key: "MANAGER" },
+    include: { permissions: { select: { permission: true } } },
+  });
+  const actor = {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    role: "MANAGER" as const,
+    roleName: role.name,
+    permissions: new Set(role.permissions.map((r) => r.permission).filter(isPermission)),
+    color: user.color,
+    theme: null,
+  };
   return { effective: actor, real: actor, isImpersonating: false };
 }
 

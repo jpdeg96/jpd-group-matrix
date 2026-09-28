@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { checkSheetAccess } from "@/lib/services/google-sheets";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ const schema = z.object({
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    await requireAdmin();
+    await requirePermission("settings.manage");
     const { sheetId } = schema.parse(await readJson(request));
     return jsonOk(await checkSheetAccess(sheetId));
   });

@@ -1,5 +1,5 @@
 import { handle, jsonOk } from "@/lib/api/respond";
-import { requireRole } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { listTeamPresence } from "@/lib/services/presence";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   return handle(async () => {
-    await requireRole("MANAGER");
+    await requirePermission("presence.viewTeam");
     return jsonOk({ presence: await listTeamPresence() });
   });
 }

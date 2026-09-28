@@ -27,10 +27,11 @@ import { conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import {
   assertCanAssign,
   assertCanWorkOn,
+  can,
   auditActor,
   type ActorContext,
 } from "@/lib/auth/actor";
-import { canAssignOthers } from "@/lib/domain/constants";
+
 import { businessToday, getScheduleConfig, getSettings } from "./settings";
 import { recordAudit } from "./audit";
 import { managerIds, notify } from "./notifications";
@@ -56,9 +57,9 @@ function assertCanEditDetails(actor: ActorContext, input: object): void {
     (field) => (input as Record<string, unknown>)[field] !== undefined,
   );
 
-  if (touchesDetails && !canAssignOthers(actor.effective.role)) {
+  if (touchesDetails && !can(actor, "events.editDetails")) {
     throw forbidden(
-      "Only managers and administrators can add or edit event details. You can still assign, tick the checkboxes, add notes and raise a flag.",
+      "You do not have permission to add or edit event details. You can still assign, tick the checkboxes, add notes and raise a flag.",
     );
   }
 }
@@ -357,8 +358,8 @@ export interface CreateEventInput {
 
 export async function createEvent(input: CreateEventInput, actor: ActorContext) {
   // Creating an event is a detail change by definition.
-  if (!canAssignOthers(actor.effective.role)) {
-    throw forbidden("Only managers and administrators can add events.");
+  if (!can(actor, "events.editDetails")) {
+    throw forbidden("You do not have permission to add events.");
   }
 
   await assertEventTypeUsable(input.eventTypeId);
@@ -1008,7 +1009,7 @@ export async function flagEvent(
      * pings everybody, and a bell that always has something in it is a bell
      * nobody reads.
      */
-    const recipients = canAssignOthers(actor.effective.role)
+    const recipients = can(actor, "events.assignOthers")
       ? existing.assigneeId
         ? [existing.assigneeId]
         : // Nobody holds it, so there is nobody to ask. The other managers
@@ -1098,9 +1099,9 @@ export async function resolveFlag(
   eventId: string,
   actor: ActorContext,
 ): Promise<DashboardEventView> {
-  if (!canAssignOthers(actor.effective.role)) {
+  if (!can(actor, "flags.clear")) {
     throw forbidden(
-      "Only managers and administrators can clear a flag. Raise a note if you need to add context.",
+      "You do not have permission to clear a flag. Raise a note if you need to add context.",
     );
   }
 

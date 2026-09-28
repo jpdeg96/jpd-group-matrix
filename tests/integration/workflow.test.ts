@@ -44,6 +44,7 @@ import {
 } from "@/lib/services/presence";
 import { archivePastEvents } from "@/lib/services/maintenance";
 import type { ActorContext } from "@/lib/auth/actor";
+import { isPermission, type Permission } from "@/lib/domain/permissions";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 const suite = hasDatabase ? describe : describe.skip;
@@ -59,6 +60,13 @@ suite("event workflow", () => {
   let typeId: string;
   let today: PlainDate;
 
+  /*
+   * Builds an actor with the grants that role has in the database.
+   *
+   * Read from the seeded roles rather than hard-coded here, so these tests
+   * exercise the same permission set the application resolves. A literal list
+   * would keep passing after somebody changed what a Manager may do.
+   */
   const actorFor = (user: {
     id: string;
     email: string;
@@ -66,7 +74,18 @@ suite("event workflow", () => {
     role: "ADMIN" | "MANAGER" | "USER";
     color: string;
     theme: string | null;
-  }): ActorContext => ({ effective: user, real: user, isImpersonating: false });
+  }): ActorContext => {
+    const grants = grantsByRoleKey.get(user.role) ?? new Set<Permission>();
+    const resolved = {
+      ...user,
+      roleName: user.role,
+      permissions: grants,
+    };
+    return { effective: resolved, real: resolved, isImpersonating: false };
+  };
+
+  /** Filled in `beforeEach`, once the seeded roles are known. */
+  const grantsByRoleKey = new Map<string, ReadonlySet<Permission>>();
 
   beforeEach(async () => {
     invalidateSettingsCache();
@@ -78,6 +97,18 @@ suite("event workflow", () => {
     await prisma.event.deleteMany();
     await prisma.eventType.deleteMany();
     await prisma.user.deleteMany();
+
+    // Roles are seeded by migration and survive the truncation above, so the
+    // grants are read once per test and handed to every actor built here.
+    grantsByRoleKey.clear();
+    for (const role of await prisma.role.findMany({
+      include: { permissions: { select: { permission: true } } },
+    })) {
+      grantsByRoleKey.set(
+        role.key,
+        new Set(role.permissions.map((row) => row.permission).filter(isPermission)),
+      );
+    }
 
     const [a, m, w] = await Promise.all([
       prisma.user.create({
@@ -407,14 +438,14 @@ describe("promotion into C1", () => {
       const row = await c1Row();
       await expect(
         updateStage(row.stageId, { reviewDue: addDays(today, 3) }, worker),
-      ).rejects.toThrow(/administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
     });
 
     it("stops a manager moving a review date", async () => {
       const row = await c1Row();
       await expect(
         updateStage(row.stageId, { reviewDue: addDays(today, 3) }, manager),
-      ).rejects.toThrow(/administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
     });
 
     it("lets an administrator move one", async () => {
@@ -448,7 +479,7 @@ describe("promotion into C1", () => {
           { stageIds: [row.stageId], reviewDue: addDays(today, 5) },
           manager,
         ),
-      ).rejects.toThrow(/administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
     });
 
     it("allows a bulk date change from an administrator", async () => {
@@ -786,7 +817,7 @@ describe("promotion into C1", () => {
           { eventDate: addDays(today, 20), eventTypeId: typeId },
           worker,
         ),
-      ).rejects.toThrow(/managers and administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
     });
 
     it("stops a regular user editing the date, type, teams or venue", async () => {
@@ -800,7 +831,7 @@ describe("promotion into C1", () => {
         { venue: "Changed" },
       ]) {
         await expect(updateEvent(event.id, patch, worker)).rejects.toThrow(
-          /managers and administrators/i,
+          /do not have permission/i,
         );
       }
     });
@@ -842,7 +873,7 @@ describe("promotion into C1", () => {
       await flagEvent(event.id, "Needs a look.", worker);
 
       // A flag its own cause can dismiss is not a flag.
-      await expect(resolveFlag(event.id, worker)).rejects.toThrow(/managers/i);
+      await expect(resolveFlag(event.id, worker)).rejects.toThrow(/do not have permission/i);
     });
 
     it("lets a manager clear one", async () => {
@@ -889,7 +920,7 @@ describe("promotion into C1", () => {
       const event = await makeEvent(30);
       await expect(
         updateEvent(event.id, { assigneeId: manager.effective.id }, worker),
-      ).rejects.toThrow(/managers/i);
+      ).rejects.toThrow(/needs permission to assign work/i);
     });
 
     it("stops a regular user taking work already assigned to someone else", async () => {
@@ -899,7 +930,7 @@ describe("promotion into C1", () => {
       // The holder must release it, or a manager must move it.
       await expect(
         updateEvent(event.id, { assigneeId: worker.effective.id }, worker),
-      ).rejects.toThrow(/managers/i);
+      ).rejects.toThrow(/needs permission to assign work/i);
     });
 
     it("stops a regular user releasing someone else's assignment", async () => {
@@ -908,7 +939,7 @@ describe("promotion into C1", () => {
 
       await expect(
         updateEvent(event.id, { assigneeId: null }, worker),
-      ).rejects.toThrow(/managers/i);
+      ).rejects.toThrow(/needs permission to assign work/i);
     });
 
     it("stops a regular user releasing their own assignment", async () => {
@@ -1416,10 +1447,10 @@ describe("promotion into C1", () => {
       const event = await makeEvent(30);
       await expect(
         planBulkUpdate({ eventIds: [event.id], venue: "New" }, worker),
-      ).rejects.toThrow(/managers and administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
       await expect(
         applyBulkUpdate({ eventIds: [event.id], venue: "New" }, worker),
-      ).rejects.toThrow(/managers and administrators/i);
+      ).rejects.toThrow(/do not have permission/i);
     });
 
     it("plans without writing anything", async () => {

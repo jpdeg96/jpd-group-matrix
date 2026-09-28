@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk } from "@/lib/api/respond";
 import { requireUser } from "@/lib/auth/guards";
-import { canAssignOthers } from "@/lib/domain/constants";
 import { getMetrics } from "@/lib/services/metrics";
 import { isMetricsPeriod } from "@/lib/domain/metrics-period";
+import { can } from "@/lib/auth/actor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     const metrics = await getMetrics(
       period,
-      canAssignOthers(actor.effective.role) ? {} : { onlyUserId: actor.effective.id },
+      can(actor, "metrics.viewTeam") ? {} : { onlyUserId: actor.effective.id },
     );
 
     return jsonOk({ metrics });

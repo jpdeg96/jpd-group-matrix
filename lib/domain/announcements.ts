@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-09-28-editable-permissions",
+    date: "Sep 28, 2026",
+    kind: "added",
+    title: "Roles and permissions are now yours to change",
+    body: "Users now has a Roles & Permissions grid: one row per thing somebody can do, one column per role, and a tick where a role may do it. Change one and it applies on that person’s next request — nobody has to sign out. Add role creates your own, which starts with nothing ticked until you say otherwise, and people are moved into it from the Users list above. Administrator, Manager and User are still there and their permissions are editable too, though they cannot be deleted. Nothing changed about who can do what today: each built-in role starts with exactly the access it already had. Two things are refused outright — leaving nobody able to manage users and settings, and taking that away from yourself — because the screen you would need to undo either on is the one you would have just closed.",
+  },
+  {
     id: "2026-09-18-stay-signed-in",
     date: "Sep 18, 2026",
     kind: "fixed",

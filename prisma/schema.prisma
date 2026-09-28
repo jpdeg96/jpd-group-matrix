@@ -77,8 +77,13 @@ model User {
   displayName  String   @map("display_name")
   /// bcrypt hash. NULL means this account can only sign in via Google.
   passwordHash String?  @map("password_hash")
+  /// Superseded by `roleId`. Kept populated in step with it so a rollback to
+  /// the previous release still finds a usable value; nothing reads it.
   role         UserRole @default(USER)
-  active       Boolean  @default(true)
+  roleId       String?  @map("role_id") @db.Uuid
+  roleRef      Role?    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  active Boolean @default(true)
 
   /// Identity color, `#rrggbb`. Used for the dot beside their name in every
   /// dropdown, assignment cell and presence indicator.
@@ -136,6 +141,57 @@ model User {
 
   @@index([active, displayName])
   @@map("users")
+}
+
+/// A role, and the permissions granted to it.
+///
+/// Roles used to be the `UserRole` enum and permissions were a rank comparison
+/// in code, which meant every question was "is this person senior enough?" —
+/// unanswerable for "a manager who may not see payroll". Roles are rows now and
+/// permissions are named capabilities, so a role is whatever set somebody chose.
+///
+/// The *catalogue* of permissions stays in code (`lib/domain/permissions.ts`).
+/// A permission only exists if something enforces it, so a row naming one the
+/// code does not know about would be a switch wired to nothing; unknown keys are
+/// ignored on read and refused on write.
+model Role {
+  id  String @id @default(uuid()) @db.Uuid
+  /// Stable identifier, uppercase. Never changes once created — audit entries
+  /// and the three built-ins are keyed on it.
+  key String @unique
+
+  name        String
+  description String?
+
+  /// ADMIN, MANAGER and USER. Their grants are editable like any other role,
+  /// but they cannot be deleted: every user points at one, and ADMIN is what
+  /// the lock-out guard stands on.
+  isSystem  Boolean @default(false) @map("is_system")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  users       User[]
+
+  @@index([sortOrder, name])
+  @@map("roles")
+}
+
+/// One granted capability. Absence is denial — there is no "deny" row, because
+/// two ways to say no is one more than necessary.
+model RolePermission {
+  id     String @id @default(uuid()) @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  /// A key from the catalogue in code.
+  permission String
+
+  @@unique([roleId, permission], map: "role_permissions_role_permission_key")
+  @@index([roleId])
+  @@map("role_permissions")
 }
 
 /// Administrator-managed list of event types (formerly "leagues").

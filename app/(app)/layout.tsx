@@ -32,7 +32,9 @@ export default async function AppLayout({
 
   // Only loaded for a real administrator — this list is the impersonation menu.
   const impersonationTargets =
-    actor.real.role === "ADMIN" ? await listImpersonationTargets(actor.real.id) : [];
+    actor.real.permissions.has("impersonate")
+      ? await listImpersonationTargets(actor.real.id)
+      : [];
 
   const zoneLabel = settings.timeZone.split("/").pop()?.replace(/_/g, " ") ?? settings.timeZone;
 
@@ -40,14 +42,33 @@ export default async function AppLayout({
     <div className="min-h-screen" style={{ background: "var(--canvas)" }}>
       {actor.isImpersonating ? (
         <ImpersonationBanner
-          viewingAs={actor.effective}
+          viewingAs={{
+            id: actor.effective.id,
+            displayName: actor.effective.displayName,
+            color: actor.effective.color,
+            roleName: actor.effective.roleName,
+          }}
           realName={actor.real.displayName}
         />
       ) : null}
 
       <AppNav
-        user={actor.effective}
-        realUser={actor.real}
+        user={{
+          id: actor.effective.id,
+          displayName: actor.effective.displayName,
+          color: actor.effective.color,
+          role: actor.effective.role,
+          roleName: actor.effective.roleName,
+          permissions: [...actor.effective.permissions],
+        }}
+        realUser={{
+          id: actor.real.id,
+          displayName: actor.real.displayName,
+          color: actor.real.color,
+          role: actor.real.role,
+          roleName: actor.real.roleName,
+          permissions: [...actor.real.permissions],
+        }}
         isImpersonating={actor.isImpersonating}
         impersonationTargets={impersonationTargets}
         siteName={settings.siteName}

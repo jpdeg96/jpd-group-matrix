@@ -29,8 +29,8 @@ import {
 import { businessToday, getScheduleConfig, getSettings } from "./settings";
 import { startOfBusinessDay } from "./clockify";
 import { conflict, forbidden, notFound, validationError } from "@/lib/errors";
-import { canAdminister } from "@/lib/domain/constants";
-import { assertCanAssign, auditActor, type ActorContext } from "@/lib/auth/actor";
+
+import { assertCanAssign, auditActor, can, type ActorContext } from "@/lib/auth/actor";
 import { recordAudit } from "./audit";
 
 export interface C1RowView {
@@ -307,9 +307,9 @@ export async function updateStage(
     // Administrators only. A review date is the deadline the whole staging
     // process is measured against — moving it silently reshapes what counts as
     // late, so it sits above the level that does the work.
-    if (!canAdminister(actor.effective.role)) {
+    if (!can(actor, "stages.editDueDates")) {
       throw forbidden(
-        "Only administrators can change a review due date. Raise a flag if one needs moving.",
+        "You do not have permission to change a review due date. Raise a flag if one needs moving.",
       );
     }
 
@@ -405,8 +405,8 @@ export async function bulkUpdateReviewDue(
 ): Promise<BulkDueResult> {
   // Same rule as the single-row edit, enforced here as well as at the route:
   // a bulk move is the higher-consequence version of the same action.
-  if (!canAdminister(actor.effective.role)) {
-    throw forbidden("Only administrators can change review due dates.");
+  if (!can(actor, "stages.editDueDates")) {
+    throw forbidden("You do not have permission to change review due dates.");
   }
 
   if (input.stageIds.length === 0) {

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin, requireUser } from "@/lib/auth/guards";
+import { requireUser, requirePermission } from "@/lib/auth/guards";
 import { createEventType, listEventTypes } from "@/lib/services/event-types";
 import { createEventTypeSchema } from "@/lib/validation/schemas";
 
@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("settings.manage");
     const input = createEventTypeSchema.parse(await readJson(request));
     return jsonOk(
       { type: await createEventType(input, actor.real.id) },

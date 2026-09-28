@@ -34,7 +34,15 @@ import { prisma } from "@/lib/db/prisma";
 import { signInSchema } from "@/lib/validation/schemas";
 import { googleAdmission, resolveAccountForSignIn } from "./account-lookup";
 
-export type SessionRole = "ADMIN" | "MANAGER" | "USER";
+/**
+ * The role key carried on the session.
+ *
+ * Widened when roles became data: a custom role has its own key. The three
+ * built-ins stay named for the places that still compare against them for
+ * display, but nothing decides permission from this — that comes from the
+ * grants resolved on the actor.
+ */
+export type SessionRole = "ADMIN" | "MANAGER" | "USER" | (string & {});
 
 export interface SessionUser {
   id: string;

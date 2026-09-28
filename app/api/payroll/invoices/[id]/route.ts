@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { markInvoicePaid, markInvoiceSent, voidInvoice } from "@/lib/services/invoices";
 import { invoiceActionSchema } from "@/lib/validation/payroll-schemas";
 
@@ -13,7 +13,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("payroll.invoice");
     const { id } = await context.params;
     const input = invoiceActionSchema.parse(await readJson(request));
 

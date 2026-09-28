@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { requireManager } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { buildInvoicePdf } from "@/lib/services/invoice-pdf";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireManager();
+    await requirePermission("payroll.view");
   } catch {
     return new Response("Not permitted", { status: 403 });
   }

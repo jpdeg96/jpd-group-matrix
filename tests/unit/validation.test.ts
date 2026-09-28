@@ -188,36 +188,44 @@ describe("createUserSchema", () => {
     const result = createUserSchema.safeParse({
       email: "  Person@Example.COM ",
       displayName: "Person",
+      roleId: "11111111-1111-4111-8111-111111111111",
     });
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.email).toBe("person@example.com");
   });
 
-  it("defaults to an active regular user", () => {
+  it("defaults to active", () => {
     const result = createUserSchema.safeParse({
       email: "person@example.com",
       displayName: "Person",
+      roleId: "11111111-1111-4111-8111-111111111111",
     });
 
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.role).toBe("USER");
-      expect(result.data.active).toBe(true);
-    }
+    if (result.success) expect(result.data.active).toBe(true);
   });
 
-  it("accepts the manager role", () => {
-    const result = createUserSchema.safeParse({
-      email: "person@example.com",
-      displayName: "Person",
-      role: "MANAGER",
-    });
-    expect(result.success).toBe(true);
+  it("requires a role, because there is no sensible default once roles are data", () => {
+    // A default would have to name one particular role row, and which row that
+    // is depends on the deployment. Choosing is the caller's job.
+    expect(
+      createUserSchema.safeParse({ email: "p@example.com", displayName: "P" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a role that is not an id", () => {
+    expect(
+      createUserSchema.safeParse({
+        email: "p@example.com",
+        displayName: "P",
+        roleId: "MANAGER",
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects a malformed color", () => {
-    const base = { email: "p@example.com", displayName: "P" };
+    const base = { email: "p@example.com", displayName: "P", roleId: "11111111-1111-4111-8111-111111111111" };
     expect(createUserSchema.safeParse({ ...base, color: "red" }).success).toBe(false);
     expect(createUserSchema.safeParse({ ...base, color: "#GGG" }).success).toBe(false);
     expect(createUserSchema.safeParse({ ...base, color: "#2563EB" }).success).toBe(true);

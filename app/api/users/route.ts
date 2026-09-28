@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin, requireUser } from "@/lib/auth/guards";
+import { requireUser, requirePermission } from "@/lib/auth/guards";
 import { createUser, listSelectableUsers, listUsers } from "@/lib/services/users";
 import { createUserSchema } from "@/lib/validation/schemas";
 
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("users.manage");
     const input = createUserSchema.parse(await readJson(request));
     return jsonOk({ user: await createUser(input, actor) }, { status: 201 });
   });

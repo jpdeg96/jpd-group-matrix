@@ -216,7 +216,7 @@ export function EventFormDialog({
             label="Assigned"
             htmlFor="assigneeId"
             errors={fieldErrors.assigneeId}
-            hint="Only managers and administrators can assign work to other people."
+            hint="You need permission to assign work to other people."
           >
             <Select
               id="assigneeId"

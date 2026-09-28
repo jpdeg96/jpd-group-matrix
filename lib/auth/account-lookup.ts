@@ -16,7 +16,14 @@ export interface ResolvedAccount {
   id: string;
   email: string;
   displayName: string;
-  role: UserRoleValue;
+  /**
+   * The role's key — a built-in, or a custom role's own.
+   *
+   * Carried onto the session for display only. Nothing decides permission from
+   * it: grants are resolved per request from the role row, so a change applies
+   * on the next request rather than waiting for the token to expire.
+   */
+  role: UserRoleValue | (string & {});
   active: boolean;
 }
 
@@ -42,10 +49,20 @@ export async function resolveAccountForSignIn(
 
   const user = await prisma.user.findUnique({
     where: { email: normalised },
-    select: { id: true, email: true, displayName: true, role: true, active: true },
+    select: {
+      id: true,
+      email: true,
+      displayName: true,
+      role: true,
+      active: true,
+      roleRef: { select: { key: true } },
+    },
   });
 
-  return user;
+  if (!user) return null;
+
+  // The role key, so the session says what the person actually is.
+  return { ...user, role: user.roleRef?.key ?? user.role };
 }
 
 export interface GoogleAdmissionInput {

@@ -8,6 +8,8 @@
 
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db/prisma";
+import { assertRoleChangeIsSafe } from "./roles";
+import { LOCKOUT_CRITICAL } from "@/lib/domain/permissions";
 import {
   conflict,
   isUniqueViolation,
@@ -19,6 +21,8 @@ import {
   isValidUserColor,
   normaliseUserColor,
   USER_COLOR_PALETTE,
+  roleLabel,
+  USER_ROLES,
   type UserRoleValue,
 } from "@/lib/domain/constants";
 import { auditActor, type ActorContext } from "@/lib/auth/actor";
@@ -36,6 +40,12 @@ export interface UserOption {
 }
 
 export interface ManagedUser extends UserOption {
+  /** The role row, so the picker can preselect it. */
+  roleId: string | null;
+  /** What the role is called — the only name a custom role has. */
+  roleName: string;
+  /** Whether that role can manage users and settings — drives the badge. */
+  canAdminister: boolean;
   createdAt: string;
   hasPassword: boolean;
   assignedEvents: number;
@@ -90,6 +100,10 @@ export async function listUsers(): Promise<ManagedUser[]> {
       clockifyUserId: true,
       excludeFromTimeReport: true,
       canStartCompleted: true,
+      roleId: true,
+      roleRef: {
+        select: { name: true, permissions: { select: { permission: true } } },
+      },
       _count: { select: { assignedEvents: true, assignedStages: true } },
     },
   });
@@ -99,6 +113,13 @@ export async function listUsers(): Promise<ManagedUser[]> {
     email: user.email,
     displayName: user.displayName,
     role: user.role,
+    roleId: user.roleId,
+    roleName: user.roleRef?.name ?? roleLabel(user.role),
+    // "Administrator" is now a capability rather than a name, so this asks the
+    // question the badge is really about: can this person administer?
+    canAdminister: LOCKOUT_CRITICAL.every((permission) =>
+      (user.roleRef?.permissions ?? []).some((row) => row.permission === permission),
+    ),
     active: user.active,
     color: user.color,
     createdAt: user.createdAt.toISOString(),
@@ -142,13 +163,51 @@ async function suggestColor(): Promise<string> {
 export interface CreateUserInput {
   email: string;
   displayName: string;
-  role?: UserRoleValue;
+  /** The role row this user belongs to. */
+  roleId: string;
   active?: boolean;
   color?: string;
   password?: string;
 }
 
+
+/**
+ * A value for the legacy `users.role` enum column.
+ *
+ * Nothing reads it — permissions come from the role row — but it is NOT NULL
+ * and the previous release did read it, so it is kept in step for the built-in
+ * roles and parked at USER for custom ones. A custom role has no enum value by
+ * definition, and inventing one would be a lie that a rollback would believe.
+ */
+function legacyEnumFor(key: string): UserRoleValue {
+  return (USER_ROLES as readonly string[]).includes(key)
+    ? (key as UserRoleValue)
+    : "USER";
+}
+
+/** Refuses to deactivate the last person who can administer the site. */
+async function assertDeactivationIsSafe(userId: string): Promise<void> {
+  const administering = await prisma.role.findMany({
+    where: {
+      AND: LOCKOUT_CRITICAL.map((permission) => ({ permissions: { some: { permission } } })),
+    },
+    select: { users: { where: { active: true }, select: { id: true } } },
+  });
+
+  const othersRemain = administering.some((role) =>
+    role.users.some((other) => other.id !== userId),
+  );
+
+  if (!othersRemain) {
+    throw validationError(
+      "There must be at least one active person who can manage users and settings.",
+    );
+  }
+}
 export async function createUser(input: CreateUserInput, actor: ActorContext) {
+  const role = await prisma.role.findUnique({ where: { id: input.roleId } });
+  if (!role) throw validationError("Choose a role for this user.");
+
   const color = input.color ? normaliseUserColor(input.color) : await suggestColor();
   if (!isValidUserColor(color)) {
     throw validationError("Color must be a hex value such as #2563eb.");
@@ -159,7 +218,8 @@ export async function createUser(input: CreateUserInput, actor: ActorContext) {
       data: {
         email: input.email.trim().toLowerCase(),
         displayName: input.displayName.trim(),
-        role: input.role ?? "USER",
+        role: legacyEnumFor(role.key),
+        roleId: role.id,
         active: input.active ?? true,
         color,
         passwordHash: input.password
@@ -196,7 +256,7 @@ export async function createUser(input: CreateUserInput, actor: ActorContext) {
 export interface UpdateUserInput {
   email?: string;
   displayName?: string;
-  role?: UserRoleValue;
+  roleId?: string;
   active?: boolean;
   color?: string;
   password?: string;
@@ -211,8 +271,24 @@ export async function updateUser(
   input: UpdateUserInput,
   actor: ActorContext,
 ) {
-  const existing = await prisma.user.findUnique({ where: { id: userId } });
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { roleRef: { include: { permissions: { select: { permission: true } } } } },
+  });
   if (!existing) throw notFound("That user no longer exists.");
+
+  /*
+   * What the user is becoming, resolved before anything is judged: every guard
+   * below needs the target role's grants, not merely the fact that the role
+   * changed.
+   */
+  const nextRole = input.roleId
+    ? await prisma.role.findUnique({
+        where: { id: input.roleId },
+        include: { permissions: { select: { permission: true } } },
+      })
+    : null;
+  if (input.roleId && !nextRole) throw validationError("That role no longer exists.");
 
   const actingAs = actor.real.id;
 
@@ -222,23 +298,29 @@ export async function updateUser(
     if (input.active === false) {
       throw validationError("You cannot deactivate your own account.");
     }
-    if (input.role !== undefined && input.role !== "ADMIN" && existing.role === "ADMIN") {
-      throw validationError("You cannot remove your own administrator role.");
+    if (nextRole) {
+      // Taking your own administering permissions away is the same mistake as
+      // deleting the last administrator, and just as hard to undo.
+      const keepsAdministering = LOCKOUT_CRITICAL.every((permission) =>
+        nextRole.permissions.some((row) => row.permission === permission),
+      );
+      const hadAdministering = LOCKOUT_CRITICAL.every((permission) =>
+        (existing.roleRef?.permissions ?? []).some((row) => row.permission === permission),
+      );
+      if (hadAdministering && !keepsAdministering) {
+        throw validationError(
+          "You cannot take away your own permission to manage users and settings.",
+        );
+      }
     }
   }
 
-  const losingAdmin =
-    existing.role === "ADMIN" &&
-    existing.active &&
-    (input.active === false || (input.role !== undefined && input.role !== "ADMIN"));
+  // Moving the last administrator out of an administering role locks the site
+  // exactly as thoroughly as unticking the permission, so the same guard runs.
+  if (nextRole) await assertRoleChangeIsSafe(userId, nextRole.id);
 
-  if (losingAdmin) {
-    const otherAdmins = await prisma.user.count({
-      where: { role: "ADMIN", active: true, id: { not: userId } },
-    });
-    if (otherAdmins === 0) {
-      throw validationError("There must be at least one active administrator.");
-    }
+  if (existing.active && input.active === false) {
+    await assertDeactivationIsSafe(userId);
   }
 
   const color = input.color ? normaliseUserColor(input.color) : undefined;
@@ -256,7 +338,7 @@ export async function updateUser(
         ...(input.displayName !== undefined
           ? { displayName: input.displayName.trim() }
           : {}),
-        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(nextRole ? { roleId: nextRole.id, role: legacyEnumFor(nextRole.key) } : {}),
         ...(input.active !== undefined ? { active: input.active } : {}),
         ...(color !== undefined ? { color } : {}),
         ...(input.clockifyUserId !== undefined
@@ -293,7 +375,7 @@ export async function updateUser(
       {
         ...(input.email !== undefined ? { email: user.email } : {}),
         ...(input.displayName !== undefined ? { displayName: user.displayName } : {}),
-        ...(input.role !== undefined ? { role: user.role } : {}),
+        ...(nextRole ? { role: nextRole.name } : {}),
         ...(input.active !== undefined ? { active: user.active } : {}),
         ...(color !== undefined ? { color: user.color } : {}),
       },
@@ -322,8 +404,8 @@ export async function updateUser(
 /** Impersonation targets: active users other than the administrator themselves. */
 export async function listImpersonationTargets(
   adminId: string,
-): Promise<UserOption[]> {
-  return prisma.user.findMany({
+): Promise<Array<UserOption & { roleName: string }>> {
+  const rows = await prisma.user.findMany({
     where: { active: true, id: { not: adminId } },
     select: {
       id: true,
@@ -332,7 +414,15 @@ export async function listImpersonationTargets(
       active: true,
       color: true,
       role: true,
+      roleRef: { select: { name: true } },
     },
     orderBy: [{ role: "asc" }, { displayName: "asc" }],
   });
+
+  // The menu shows what each person's role is *called*, which for a custom role
+  // is the only name it has.
+  return rows.map((row) => ({
+    ...row,
+    roleName: row.roleRef?.name ?? roleLabel(row.role),
+  }));
 }

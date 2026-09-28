@@ -17,7 +17,7 @@ import {
  * useful even to somebody who cannot — hiding it just makes the system look
  * arbitrary from below.
  */
-export function HelpView({ role }: { role: "ADMIN" | "MANAGER" | "USER" }) {
+export function HelpView({ role }: { role: string }) {
   const [query, setQuery] = React.useState("");
 
   const needle = query.trim().toLowerCase();
@@ -98,7 +98,7 @@ function Section({
   role,
 }: {
   section: HelpSection;
-  role: "ADMIN" | "MANAGER" | "USER";
+  role: string;
 }) {
   const applies = canDo(role, section.audience);
 
@@ -165,7 +165,7 @@ function Section({
   );
 }
 
-function canDo(role: "ADMIN" | "MANAGER" | "USER", audience: Audience): boolean {
+function canDo(role: string, audience: Audience): boolean {
   if (audience === "everyone") return true;
   if (audience === "manager") return role === "MANAGER" || role === "ADMIN";
   return role === "ADMIN";

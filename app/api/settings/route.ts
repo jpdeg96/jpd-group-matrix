@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin, requireUser } from "@/lib/auth/guards";
+import { requireUser, requirePermission } from "@/lib/auth/guards";
 import { getSettings, updateSettings } from "@/lib/services/settings";
 import { updateSettingsSchema } from "@/lib/validation/schemas";
 
@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("settings.manage");
     const input = updateSettingsSchema.parse(await readJson(request));
     return jsonOk({ settings: await updateSettings(input, actor.real.id) });
   });

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getActorContext } from "@/lib/auth/guards";
-import { canAssignOthers } from "@/lib/domain/constants";
 import { PayrollNav } from "@/components/payroll/payroll-nav";
+import { can } from "@/lib/auth/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function PayrollLayout({ children }: { children: React.ReactNode }) {
   const actor = await getActorContext();
   if (!actor) redirect("/sign-in");
-  if (!canAssignOthers(actor.effective.role)) redirect("/dashboard");
+  if (!can(actor, "payroll.view")) redirect("/dashboard");
 
   return (
     <div className="space-y-4">

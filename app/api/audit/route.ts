@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk } from "@/lib/api/respond";
-import { requireManager } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { listAuditLog } from "@/lib/services/audit-log";
 import { auditQuerySchema, searchParamsToObject } from "@/lib/validation/schemas";
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    await requireManager();
+    await requirePermission("audit.view");
 
     const query = auditQuerySchema.parse(
       searchParamsToObject(request.nextUrl.searchParams),

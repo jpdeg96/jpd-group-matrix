@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { createManualInvoice } from "@/lib/services/invoices";
 import { manualInvoiceSchema } from "@/lib/validation/payroll-schemas";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("payroll.invoice");
     const input = manualInvoiceSchema.parse(await readJson(request));
 
     const result = await createManualInvoice(

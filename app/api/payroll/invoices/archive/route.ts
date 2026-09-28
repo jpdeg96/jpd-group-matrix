@@ -1,5 +1,5 @@
 import { handle, jsonOk } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { validationError } from "@/lib/errors";
 import { auditActor } from "@/lib/auth/actor";
 import { recordAudit } from "@/lib/services/audit";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST() {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("payroll.invoice");
 
     const before = await countUnfiled();
     if (before === 0) {

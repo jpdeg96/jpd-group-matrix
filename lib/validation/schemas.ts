@@ -286,7 +286,7 @@ export const createUserSchema = z.object({
     .trim()
     .min(1, "Name is required.")
     .max(120, "Name must be 120 characters or fewer."),
-  role: z.enum(USER_ROLES).default("USER"),
+  roleId: uuidSchema,
   active: z.boolean().default(true),
   color: hexColorSchema.optional(),
   /** Omit to create an account that can only sign in via Google. */
@@ -303,7 +303,7 @@ export const updateUserSchema = z
   .object({
     email: z.string().trim().toLowerCase().email().max(254).optional(),
     displayName: z.string().trim().min(1).max(120).optional(),
-    role: z.enum(USER_ROLES).optional(),
+    roleId: uuidSchema.optional(),
     active: z.boolean().optional(),
     color: hexColorSchema.optional(),
     password: z.string().min(10).max(200).optional(),
@@ -316,6 +316,46 @@ export const updateUserSchema = z
   });
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Roles                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Permission keys are validated against the catalogue in the service, not here.
+ * Zod would only be able to check the shape; whether a key names something the
+ * code actually enforces is a question about the code, and answering it in one
+ * place keeps the two from drifting.
+ */
+const permissionList = z.array(z.string().trim().min(1).max(60)).max(100);
+
+export const createRoleSchema = z.object({
+  name: z.string().trim().min(1, "Give the role a name.").max(60),
+  description: z
+    .string()
+    .trim()
+    .max(300)
+    .transform((value) => (value.length === 0 ? null : value))
+    .nullable()
+    .optional(),
+  permissions: permissionList.optional(),
+});
+
+export const updateRoleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(60).optional(),
+    description: z
+      .string()
+      .trim()
+      .max(300)
+      .transform((value) => (value.length === 0 ? null : value))
+      .nullable()
+      .optional(),
+    permissions: permissionList.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "No changes were supplied.",
+  });
 
 export const signInSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),

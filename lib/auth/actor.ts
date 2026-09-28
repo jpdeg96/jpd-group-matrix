@@ -8,16 +8,55 @@
  */
 
 import { forbidden } from "@/lib/errors";
-import { canAssignOthers, type UserRoleValue } from "@/lib/domain/constants";
+import type { UserRoleValue } from "@/lib/domain/constants";
+import type { Permission } from "@/lib/domain/permissions";
 
 export interface ActorUser {
   id: string;
   email: string;
   displayName: string;
-  role: UserRoleValue;
+  /**
+   * The role's stable key. Still typed as the built-in union for the three that
+   * ship with the app; a custom role carries its own key, so this is compared
+   * for display and never for permission.
+   */
+  role: UserRoleValue | (string & {});
+  /** What the role is called on screen. */
+  roleName: string;
+  /**
+   * Everything this role may do, resolved once per request when the actor is
+   * loaded.
+   *
+   * A set rather than a lookup, so `can()` stays synchronous and the hundred-odd
+   * call sites do not each become a database round trip — or, worse, each become
+   * async and quietly change what can be checked inside a transaction.
+   */
+  permissions: ReadonlySet<Permission>;
   color: string;
   /** Their own theme choice. `null` means "follow the site default". */
   theme: string | null;
+}
+
+/**
+ * Whether this person may do something.
+ *
+ * Reads the *effective* actor, so an administrator viewing as somebody else is
+ * held to that person's permissions — the whole point of viewing-as being to
+ * see their application rather than a copy of yours.
+ */
+export function can(actor: ActorContext, permission: Permission): boolean {
+  return actor.effective.permissions.has(permission);
+}
+
+/** Throws unless the actor holds the permission. */
+export function assertCan(
+  actor: ActorContext,
+  permission: Permission,
+  what: string,
+): void {
+  if (!can(actor, permission)) {
+    throw forbidden(`You do not have permission to ${what}.`);
+  }
 }
 
 /**
@@ -52,7 +91,7 @@ export function assertCanAssign(
   currentAssigneeId: string | null,
   nextAssigneeId: string | null,
 ): void {
-  if (canAssignOthers(actor.effective.role)) return;
+  if (can(actor, "events.assignOthers")) return;
 
   const self = actor.effective.id;
 
@@ -61,7 +100,7 @@ export function assertCanAssign(
   throw forbidden(
     currentAssigneeId === self && nextAssigneeId === null
       ? "You cannot unassign yourself. Ask a manager to reassign it if you cannot take it on."
-      : "You can only claim work nobody has taken. Only managers can assign it to somebody else.",
+      : "You can only claim work nobody has taken. Handing it to somebody else needs permission to assign work.",
   );
 }
 
@@ -100,7 +139,7 @@ export function assertCanWorkOn(
   holders: { eventAssigneeId: string | null; stageAssigneeId?: string | null },
   verb: string,
 ): void {
-  if (canAssignOthers(actor.effective.role)) return;
+  if (can(actor, "events.workAnyRow")) return;
 
   const self = actor.effective.id;
   if (holders.eventAssigneeId === null) return;
@@ -135,7 +174,7 @@ export function assertCanStartWork(
   actor: ActorContext,
   assigneeId: string | null,
 ): void {
-  if (canAssignOthers(actor.effective.role)) return;
+  if (can(actor, "events.workAnyRow")) return;
   if (assigneeId === actor.effective.id) return;
 
   throw forbidden(

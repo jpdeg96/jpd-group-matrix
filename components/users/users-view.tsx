@@ -17,6 +17,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { cn } from "@/lib/ui/cn";
+import type { RoleView } from "@/lib/services/roles";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
 import {
   readableTextColor,
@@ -36,7 +37,7 @@ export interface ClockifyOption {
 interface FormState {
   displayName: string;
   email: string;
-  role: UserRoleValue;
+  roleId: string;
   active: boolean;
   color: string;
   password: string;
@@ -48,7 +49,7 @@ interface FormState {
 const EMPTY: FormState = {
   displayName: "",
   email: "",
-  role: "USER",
+  roleId: "",
   active: true,
   color: USER_COLOR_PALETTE[0],
   password: "",
@@ -57,19 +58,17 @@ const EMPTY: FormState = {
   canStartCompleted: false,
 };
 
-const ROLE_DESCRIPTIONS: Record<UserRoleValue, string> = {
-  ADMIN: "Everything, including users, settings and viewing as other people.",
-  MANAGER: "All operational work, plus assigning events to other people.",
-  USER: "Operational work. Can claim unassigned work or release their own.",
-};
+
 
 export function UsersView({
   users,
+  roles,
   clockifyUsers,
   currentUserId,
   googleEnabled,
 }: {
   users: ManagedUser[];
+  roles: RoleView[];
   clockifyUsers: ClockifyOption[];
   currentUserId: string;
   googleEnabled: boolean;
@@ -82,8 +81,9 @@ export function UsersView({
   const [togglingId, setTogglingId] = React.useState<string | null>(null);
 
   const activeCount = users.filter((user) => user.active).length;
-  const adminCount = users.filter((u) => u.active && u.role === "ADMIN").length;
-  const managerCount = users.filter((u) => u.active && u.role === "MANAGER").length;
+  // Counted by capability rather than by role name: with custom roles, "how
+  // many administrators" means "how many people can administer".
+  const adminCount = users.filter((u) => u.active && u.canAdminister).length;
 
   async function toggleActive(user: ManagedUser) {
     const activating = !user.active;
@@ -120,8 +120,7 @@ export function UsersView({
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <StatPill label="active" value={activeCount} />
             <StatPill label="administrators" value={adminCount} />
-            <StatPill label="managers" value={managerCount} />
-            <span className="text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
+                        <span className="text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
               Deactivate rather than delete — history stays intact.
             </span>
           </div>
@@ -137,13 +136,12 @@ export function UsersView({
         className="grid gap-2 border-b px-5 py-3 md:grid-cols-3"
         style={{ borderColor: "var(--line)", background: "var(--canvas)" }}
       >
-        {USER_ROLES.map((role) => (
-          <div key={role} className="text-[11.5px]">
-            <Badge tone={role === "ADMIN" ? "accent" : role === "MANAGER" ? "warn" : "neutral"}>
-              {roleLabel(role)}
-            </Badge>
+        {roles.map((role) => (
+          <div key={role.id} className="text-[11.5px]">
+            <Badge tone={role.isSystem ? "neutral" : "accent"}>{role.name}</Badge>
             <p className="mt-1" style={{ color: "var(--ink-muted)" }}>
-              {ROLE_DESCRIPTIONS[role]}
+              {role.description ??
+                `${role.permissions.length} permission${role.permissions.length === 1 ? "" : "s"}.`}
             </p>
           </div>
         ))}
@@ -186,16 +184,8 @@ export function UsersView({
                   {user.email}
                 </td>
                 <td className="px-3 py-2.5">
-                  <Badge
-                    tone={
-                      user.role === "ADMIN"
-                        ? "accent"
-                        : user.role === "MANAGER"
-                          ? "warn"
-                          : "neutral"
-                    }
-                  >
-                    {roleLabel(user.role)}
+                  <Badge tone={user.canAdminister ? "accent" : "neutral"}>
+                    {user.roleName}
                   </Badge>
                 </td>
                 <td className="px-3 py-2.5">
@@ -244,6 +234,7 @@ export function UsersView({
       </div>
 
       <UserFormDialog
+        roles={roles}
         open={creating || editing !== null}
         user={editing}
         clockifyUsers={clockifyUsers}
@@ -265,6 +256,7 @@ export function UsersView({
 function UserFormDialog({
   open,
   user,
+  roles,
   clockifyUsers,
   googleEnabled,
   onClose,
@@ -274,6 +266,7 @@ function UserFormDialog({
   user: ManagedUser | null;
   clockifyUsers: ClockifyOption[];
   googleEnabled: boolean;
+  roles: RoleView[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -292,7 +285,7 @@ function UserFormDialog({
         ? {
             displayName: user.displayName,
             email: user.email,
-            role: user.role,
+            roleId: user.roleId ?? "",
             active: user.active,
             color: user.color,
             password: "",
@@ -318,7 +311,7 @@ function UserFormDialog({
       const payload: Record<string, unknown> = {
         displayName: form.displayName.trim(),
         email: form.email.trim().toLowerCase(),
-        role: form.role,
+        roleId: form.roleId,
         active: form.active,
         color: form.color,
         clockifyUserId: form.clockifyUserId.trim() || null,
@@ -394,17 +387,18 @@ function UserFormDialog({
           <Field
             label="Role"
             htmlFor="role"
-            errors={fieldErrors.role}
-            hint={ROLE_DESCRIPTIONS[form.role]}
+            errors={fieldErrors.roleId}
+            hint={roles.find((r) => r.id === form.roleId)?.description ?? undefined}
           >
             <Select
               id="role"
-              value={form.role}
-              onChange={(event) => update("role", event.target.value as UserRoleValue)}
+              value={form.roleId}
+              onChange={(event) => update("roleId", event.target.value)}
             >
-              {USER_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {roleLabel(role)}
+              <option value="">Choose a role…</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
                 </option>
               ))}
             </Select>

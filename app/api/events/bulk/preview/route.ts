@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireRole } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { planBulkUpdate } from "@/lib/services/bulk-events";
 import { bulkEventSchema } from "@/lib/validation/schemas";
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireRole("MANAGER");
+    const actor = await requirePermission("events.bulkEdit");
     const input = bulkEventSchema.parse(await readJson(request));
     return jsonOk({ plan: await planBulkUpdate(input, actor) });
   });

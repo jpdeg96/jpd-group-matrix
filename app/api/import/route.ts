@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireManager } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { commitImport, previewImport } from "@/lib/services/import";
 import { readSheet, sheetToText, sheetUrl, SheetError } from "@/lib/services/google-sheets";
 import { getSettings } from "@/lib/services/settings";
@@ -44,7 +44,7 @@ async function textFromSheet(): Promise<{ text: string; tab: string; url: string
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const actor = await requireManager();
+    const actor = await requirePermission("events.import");
     const input = importSchema.parse(await readJson(request));
 
     let text: string;

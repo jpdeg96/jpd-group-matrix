@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { getActorContext } from "@/lib/auth/guards";
-import { canAssignOthers } from "@/lib/domain/constants";
 import { prisma } from "@/lib/db/prisma";
 import { ensurePayPeriod, listPayPeriods } from "@/lib/services/payroll";
 import { businessToday } from "@/lib/services/settings";
 import { priorPayPeriod } from "@/lib/domain/payroll";
 import { plainDateFromDbDate, toPlainDate } from "@/lib/date/plain-date";
 import { ImportedTimeView } from "@/components/payroll/imported-time-view";
+import { can } from "@/lib/auth/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export default async function ImportedTimePage({
 }) {
   const actor = await getActorContext();
   if (!actor) redirect("/sign-in");
-  if (!canAssignOthers(actor.effective.role)) redirect("/dashboard");
+  if (!can(actor, "payroll.view")) redirect("/dashboard");
 
   const { period: requested } = await searchParams;
 

@@ -21,8 +21,13 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth, type SessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db/prisma";
+import {
+  isPermission,
+  PERMISSIONS,
+  type Permission,
+} from "@/lib/domain/permissions";
 import { forbidden, unauthenticated } from "@/lib/errors";
-import { canAdminister, hasAtLeastRole, type UserRoleValue } from "@/lib/domain/constants";
+import { roleLabel, type UserRoleValue } from "@/lib/domain/constants";
 import type { ActorContext, ActorUser } from "./actor";
 
 export { assertCanAssign, auditActor } from "./actor";
@@ -38,17 +43,39 @@ const USER_SELECT = {
   color: true,
   theme: true,
   active: true,
+  // The role and its grants come back with the user, so resolving what somebody
+  // may do costs no extra round trip and `can()` can stay synchronous.
+  roleRef: {
+    select: {
+      key: true,
+      name: true,
+      permissions: { select: { permission: true } },
+    },
+  },
 } as const;
 
 async function loadActor(id: string): Promise<ActorUser | null> {
   const user = await prisma.user.findUnique({ where: { id }, select: USER_SELECT });
   if (!user || !user.active) return null;
 
+  /*
+   * A user with no role row grants nothing.
+   *
+   * That state should not exist — the migration backfilled every row and the
+   * column is a restricted foreign key — but if it ever does, the safe reading
+   * of "no role" is "no elevated permission", not a crash and not a free pass.
+   */
+  const granted = (user.roleRef?.permissions ?? [])
+    .map((row) => row.permission)
+    .filter(isPermission);
+
   return {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
-    role: user.role,
+    role: user.roleRef?.key ?? user.role,
+    roleName: user.roleRef?.name ?? roleLabel(user.role),
+    permissions: new Set(granted),
     color: user.color,
     theme: user.theme,
   };
@@ -89,9 +116,12 @@ export async function getActorContext(): Promise<ActorContext | null> {
   const store = await cookies();
   const targetId = store.get(IMPERSONATION_COOKIE)?.value;
 
-  // The cookie is only ever honoured for an active administrator. This single
-  // check is what makes the whole mechanism safe.
-  if (!targetId || !canAdminister(real.role) || targetId === real.id) {
+  // Honoured only for somebody who may impersonate, and measured on the *real*
+  // account — resolving the cookie against the effective one would let a
+  // borrowed session extend itself. This single check is what makes the whole
+  // mechanism safe.
+  const mayImpersonate = real.permissions.has("impersonate");
+  if (!targetId || !mayImpersonate || targetId === real.id) {
     return { effective: real, real, isImpersonating: false };
   }
 
@@ -111,15 +141,23 @@ export async function requireActor(): Promise<ActorContext> {
   return actor;
 }
 
-/** Requires at least the given role, measured against the *effective* user. */
-export async function requireRole(minimum: UserRoleValue): Promise<ActorContext> {
+/**
+ * Requires a named capability, measured against the *effective* user.
+ *
+ * This replaced a rank check — "is this person senior enough?" — which could
+ * not express a role that does most of a manager's job but not payroll. Every
+ * route now names the one thing it needs, which is also what makes the
+ * permission editor honest: unticking a box here genuinely closes that route.
+ */
+export async function requirePermission(
+  permission: Permission,
+): Promise<ActorContext> {
   const actor = await requireActor();
 
-  if (!hasAtLeastRole(actor.effective.role, minimum)) {
+  if (!actor.effective.permissions.has(permission)) {
+    const entry = PERMISSIONS.find((item) => item.key === permission);
     throw forbidden(
-      minimum === "ADMIN"
-        ? "This action requires an administrator."
-        : "This action requires a manager.",
+      `You do not have permission to ${(entry?.label ?? permission).toLowerCase()}.`,
     );
   }
 
@@ -127,8 +165,6 @@ export async function requireRole(minimum: UserRoleValue): Promise<ActorContext>
 }
 
 export const requireUser = requireActor;
-export const requireManager = () => requireRole("MANAGER");
-export const requireAdmin = () => requireRole("ADMIN");
 
 /**
  * The page-component counterpart to `requireActor`: it redirects instead of
@@ -155,8 +191,8 @@ export async function requirePageActor(): Promise<ActorContext> {
  */
 export async function requireRealAdmin(): Promise<ActorContext> {
   const actor = await requireActor();
-  if (!canAdminister(actor.real.role)) {
-    throw forbidden("This action requires an administrator.");
+  if (!actor.real.permissions.has("impersonate")) {
+    throw forbidden("You do not have permission to view the site as another user.");
   }
   return actor;
 }

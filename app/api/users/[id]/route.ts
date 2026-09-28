@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { handle, jsonOk, readJson } from "@/lib/api/respond";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePermission } from "@/lib/auth/guards";
 import { updateUser } from "@/lib/services/users";
 import { updateUserSchema } from "@/lib/validation/schemas";
 
@@ -11,7 +11,7 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   return handle(async () => {
-    const actor = await requireAdmin();
+    const actor = await requirePermission("users.manage");
     const { id } = await params;
     const input = updateUserSchema.parse(await readJson(request));
     return jsonOk({ user: await updateUser(id, input, actor) });
