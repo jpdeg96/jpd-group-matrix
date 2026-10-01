@@ -2,34 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { UserChip } from "@/components/ui/primitives";
-import { api } from "@/lib/ui/api-client";
-import { formatPlainDateWithWeekday, type PlainDate } from "@/lib/date/plain-date";
-
-interface TeamPresence {
-  userId: string;
-  userName: string;
-  userColor: string;
-  eventId: string;
-  context: "DASHBOARD" | "C1";
-  startedAt: string;
-  minutesActive: number;
-  label: string;
-  eventDate: PlainDate;
-  venue: string | null;
-}
-
-/**
- * How often the chip re-reads.
- *
- * Matched to the client heartbeat, so somebody starting work shows up within
- * about half a minute. Faster would be a live feed nobody asked for; the tables
- * already have SSE for the rows actually in front of you.
- */
-const REFRESH_MS = 30_000;
-
-/** Above this, a claim is old enough to be worth a second look. */
-const LONG_RUNNING_MINUTES = 45;
+import { formatPlainDateWithWeekday } from "@/lib/date/plain-date";
+import {
+  formatElapsed,
+  LONG_RUNNING_MINUTES,
+  useTeamPresence,
+  type TeamPresence,
+} from "./use-team-presence";
 
 /**
  * "Who is working on what", for managers and administrators.
@@ -43,37 +24,15 @@ const LONG_RUNNING_MINUTES = 45;
  * Every row is a link to the event itself. The point of knowing somebody has
  * been on something for three hours is being able to go and look at it, and a
  * list that names an event without taking you there just moves the search.
+ *
+ * The dropdown is the desktop shape; /team is the same list as a page, which
+ * is what the phone tab bar points at.
  */
 export function TeamPresenceWidget() {
   const router = useRouter();
-  const [entries, setEntries] = React.useState<TeamPresence[]>([]);
+  const { entries, peopleCount } = useTeamPresence();
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
-
-  const load = React.useCallback(async () => {
-    try {
-      const data = await api.get<{ presence: TeamPresence[] }>("/api/presence/team");
-      setEntries(data.presence);
-    } catch {
-      // Ambient: a failed poll keeps the last known state rather than claiming
-      // everybody stopped working.
-    }
-  }, []);
-
-  React.useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), REFRESH_MS);
-
-    // The tables fire this on Start and Stop, so the chip reacts to a click
-    // in this tab rather than waiting out the poll.
-    const onChanged = () => void load();
-    window.addEventListener("jpd:presence-changed", onChanged);
-
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("jpd:presence-changed", onChanged);
-    };
-  }, [load]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -92,9 +51,6 @@ export function TeamPresenceWidget() {
   }, [open]);
 
   const active = entries.length > 0;
-
-  // One person on three events is one person working, not three.
-  const peopleCount = new Set(entries.map((entry) => entry.userId)).size;
 
   function jumpTo(entry: TeamPresence) {
     setOpen(false);
@@ -193,6 +149,17 @@ export function TeamPresenceWidget() {
               </button>
             );
           })}
+
+          <div className="border-t px-2 py-1.5" style={{ borderColor: "var(--line)" }}>
+            <Link
+              href="/team"
+              onClick={() => setOpen(false)}
+              className="text-[11px] underline"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              Open as a full page
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>
@@ -205,10 +172,3 @@ export function TeamPresenceWidget() {
  * Minutes past an hour or two stop being information — "3h 47m" and "3h" lead
  * to the same conversation, and the shorter one fits the chip.
  */
-function formatElapsed(minutes: number): string {
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return hours < 4 && rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
-}

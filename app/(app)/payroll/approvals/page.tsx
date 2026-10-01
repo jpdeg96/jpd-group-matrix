@@ -35,7 +35,7 @@ export default async function ApprovalsPage({
 
   return (
     <ApprovalsView
-      isAdmin={actor.effective.role === "ADMIN"}
+      canImportTime={can(actor, "payroll.importTime")}
       period={{
         id: period.id,
         periodStart: plainDateFromDbDate(period.periodStart),

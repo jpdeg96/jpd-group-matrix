@@ -20,10 +20,16 @@ const TABS = [
  * screens, and promoting all five would double the width of the main bar for
  * something two people touch once a week.
  */
-export function PayrollNav({ isAdmin }: { isAdmin: boolean }) {
+export function PayrollNav({
+  canManageContractors,
+}: {
+  canManageContractors: boolean;
+}) {
   const pathname = usePathname();
 
-  const visible = TABS.filter((tab) => !("adminOnly" in tab && tab.adminOnly) || isAdmin);
+  const visible = TABS.filter(
+    (tab) => !("adminOnly" in tab && tab.adminOnly) || canManageContractors,
+  );
 
   return (
     <Card>

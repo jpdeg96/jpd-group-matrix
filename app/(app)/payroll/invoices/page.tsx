@@ -34,7 +34,7 @@ export default async function InvoicesPage() {
 
   return (
     <InvoicesView
-      isAdmin={actor.effective.role === "ADMIN"}
+      canInvoice={can(actor, "payroll.invoice")}
       driveEnabled={driveEnabled}
       contractors={contractors}
       periods={periods.map((period) => ({

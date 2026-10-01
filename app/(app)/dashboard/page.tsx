@@ -66,8 +66,7 @@ export default async function DashboardPage({
       stats={stats}
       currentUser={actor.effective}
       importSheetUrl={sheetUrl(settings.importSheetId)}
-      canManage={actor.effective.role !== "USER"}
-      isAdmin={actor.effective.role === "ADMIN"}
+      permissions={[...actor.effective.permissions]}
       drilledFrom={
         drilledPerson
           ? {

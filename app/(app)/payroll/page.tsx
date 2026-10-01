@@ -50,7 +50,8 @@ export default async function PayrollPage({
 
   return (
     <PayrollDashboard
-      isAdmin={actor.effective.role === "ADMIN"}
+      canInvoice={can(actor, "payroll.invoice")}
+      canRemit={can(actor, "payroll.remit")}
       periodId={period.id}
       summary={{
         ...summary,

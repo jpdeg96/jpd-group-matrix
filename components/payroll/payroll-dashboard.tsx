@@ -50,12 +50,14 @@ interface ImportResult {
  * weekday alone is exactly the ambiguity that makes someone ask.
  */
 export function PayrollDashboard({
-  isAdmin,
+  canInvoice,
+  canRemit,
   periodId,
   summary,
   periods,
 }: {
-  isAdmin: boolean;
+  canInvoice: boolean;
+  canRemit: boolean;
   periodId: string;
   summary: Summary;
   periods: PeriodOption[];
@@ -221,7 +223,7 @@ export function PayrollDashboard({
                 Import time
               </Button>
 
-              {isAdmin ? (
+              {canInvoice ? (
                 <>
                   <Button
                     size="sm"
@@ -237,20 +239,26 @@ export function PayrollDashboard({
                   >
                     Generate invoices
                   </Button>
-                  <Button
-                    size="sm"
-                    onClick={sendRemittance}
-                    loading={busy === "remittance"}
-                    disabled={summary.invoiced === 0}
-                    title={
-                      summary.invoiced === 0
-                        ? "Generate invoices first"
-                        : "Email each contractor their invoice, and send yourself the summary"
-                    }
-                  >
-                    Send remittance
-                  </Button>
                 </>
+              ) : null}
+
+              {/* Its own grant. Raising an invoice is bookkeeping; emailing
+                  every contractor is the irreversible half, and a role can
+                  now be given the first without the second. */}
+              {canRemit ? (
+                <Button
+                  size="sm"
+                  onClick={sendRemittance}
+                  loading={busy === "remittance"}
+                  disabled={summary.invoiced === 0}
+                  title={
+                    summary.invoiced === 0
+                      ? "Generate invoices first"
+                      : "Email each contractor their invoice, and send yourself the summary"
+                  }
+                >
+                  Send remittance
+                </Button>
               ) : null}
             </>
           }

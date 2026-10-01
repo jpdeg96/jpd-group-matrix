@@ -38,6 +38,7 @@ import {
   DASHBOARD_COLUMNS,
   tableMinWidth,
 } from "./column-picker";
+import { MobileEventList } from "./mobile-event-list";
 import { Celebration } from "@/components/ui/celebration";
 import { useTheme } from "@/components/ui/theme";
 import { FlagControl } from "@/components/flags/flag-control";
@@ -122,8 +123,7 @@ export function DashboardView({
   today,
   stats,
   currentUser,
-  canManage,
-  isAdmin,
+  permissions,
   drilledFrom,
   importSheetUrl,
 }: {
@@ -146,8 +146,17 @@ export function DashboardView({
     staleDays: number;
   };
   currentUser: { id: string; role: string };
-  canManage: boolean;
-  isAdmin: boolean;
+  /**
+   * The viewer's resolved grants — the same set the routes check.
+   *
+   * Not a role, and not a `canManage` summary of one. Roles are editable and
+   * a custom role is neither of the three built-ins, so "is not a base user"
+   * stopped being a safe stand-in for "may assign work": it is true of every
+   * custom role, including one with nothing ticked. A control gated that way
+   * is offered to somebody the server will refuse, which reads as a button
+   * that flickers rather than as a permission they do not have.
+   */
+  permissions: readonly string[];
   /** The linked Google Sheet Bulk import can read, or null. */
   importSheetUrl: string | null;
   /** Set when arriving from a Metrics bar, so the screen can say so. */
@@ -168,6 +177,25 @@ export function DashboardView({
   const [typeFilter, setTypeFilter] = React.useState("");
   const [assigneeFilter, setAssigneeFilter] = React.useState("");
   const [mineOnly, setMineOnly] = React.useState(false);
+
+  /*
+   * A phone opens on your own work.
+   *
+   * "What am I on?" is the question this screen gets asked away from a desk,
+   * and 810 events is not an answer to it. Set once on mount rather than
+   * bound to the viewport, so turning it off stays off — including if the
+   * phone is then rotated, which a media query would undo.
+   *
+   * Skipped when arriving from a Metrics bar: that link already says whose
+   * work to show, and it is usually somebody else's.
+   */
+  React.useEffect(() => {
+    if (drilledFrom) return;
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (window.matchMedia("(max-width: 767px)").matches) setMineOnly(true);
+    // Mount only — this is a starting position, not a binding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
   const [scope, setScope] = React.useState<Scope>(drilledFrom ? "ALL" : "OPEN");
   const [pendingWork, setPendingWork] = React.useState<PendingWork | null>(null);
@@ -241,11 +269,25 @@ export function DashboardView({
     [users],
   );
 
+  /*
+   * One name per permission the server checks, rather than one boolean for
+   * "management". They were a single flag while there were exactly three
+   * roles and the ladder made them move together; they do not move together
+   * any more, and a role can hold any subset of them.
+   */
+  const held = React.useMemo(() => new Set(permissions), [permissions]);
+  const canEditDetails = held.has("events.editDetails");
+  const canAssignOthers = held.has("events.assignOthers");
+  const canWorkAnyRow = held.has("events.workAnyRow");
+  const canClearFlags = held.has("flags.clear");
+  const canDeleteEvents = held.has("events.delete");
+  const canBulkEdit = held.has("events.bulkEdit");
+
   // Audited and Actions are management concerns. Hiding the columns keeps the
   // grid narrower for the people who cannot act on them anyway; the server
   // enforces the same restriction independently.
-  const showAudited = canManage;
-  const showActions = canManage;
+  const showAudited = canEditDetails;
+  const showActions = canEditDetails;
 
   const visible = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -525,8 +567,8 @@ export function DashboardView({
    */
   const mayWorkOn = React.useCallback(
     (assigneeId: string | null) =>
-      canManage || assigneeId === null || assigneeId === currentUser.id,
-    [canManage, currentUser.id],
+      canWorkAnyRow || assigneeId === null || assigneeId === currentUser.id,
+    [canWorkAnyRow, currentUser.id],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -707,7 +749,7 @@ export function DashboardView({
           </div>
         }
         actions={
-          <>
+          <span className="hidden flex-wrap items-center gap-2 md:flex">
             {columns.hasCustomWidths ? (
               <Button size="sm" variant="ghost" onClick={columns.reset}>
                 Reset columns
@@ -716,7 +758,7 @@ export function DashboardView({
             <Button size="sm" onClick={exportCsv} disabled={visible.length === 0}>
               Export CSV
             </Button>
-            {canManage ? (
+            {canBulkEdit ? (
               <>
                 <Button
                   size="sm"
@@ -738,7 +780,7 @@ export function DashboardView({
                 </Button>
               </>
             ) : null}
-          </>
+          </span>
         }
       />
 
@@ -863,7 +905,7 @@ export function DashboardView({
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value)}
           aria-label="Filter by type"
-          className="h-8 w-auto"
+          className="hidden h-8 w-auto md:block"
         >
           <option value="">All types</option>
           {types.map((type) => (
@@ -877,7 +919,7 @@ export function DashboardView({
           value={assigneeFilter}
           onChange={(event) => setAssigneeFilter(event.target.value)}
           aria-label="Filter by assignee"
-          className="h-8 w-auto"
+          className="hidden h-8 w-auto md:block"
         >
           <option value="">Anyone</option>
           <option value={UNASSIGNED_FILTER}>Unassigned</option>
@@ -890,7 +932,9 @@ export function DashboardView({
 
         <span className="ml-auto text-[11.5px]" style={{ color: "var(--ink-subtle)" }}>
           {visible.length} of {events.length} shown
-          <span className="ml-2 opacity-70">· drag a column edge to resize</span>
+          <span className="ml-2 hidden opacity-70 md:inline">
+            · drag a column edge to resize
+          </span>
         </span>
       </div>
 
@@ -910,7 +954,7 @@ export function DashboardView({
           }
           description={
             events.length === 0
-              ? canManage
+              ? canEditDetails
                 ? "Add an event, or paste a batch straight from a spreadsheet with Bulk import. Ticking Complete sends an event to C1 staging."
                 : "Events are added by a manager or administrator. Once they appear here you can claim, check and flag them."
               : "Try a different search term or clear a filter."
@@ -918,7 +962,7 @@ export function DashboardView({
           action={
             events.length > 0 && filtersActive ? (
               <Button onClick={clearFilters}>Clear filters</Button>
-            ) : events.length === 0 && canManage ? (
+            ) : events.length === 0 && canEditDetails ? (
               <Button variant="primary" onClick={() => setCreating(true)}>
                 Add event
               </Button>
@@ -926,7 +970,15 @@ export function DashboardView({
           }
         />
       ) : (
-        <div className="overflow-x-auto scrollbar-thin">
+        <>
+          {/* Phone layout. Same rows, same page, same filters — only the
+              arrangement differs, so there is one set of live connections
+              and one definition of what is on screen. */}
+          <div className="md:hidden">
+            <MobileEventList events={paged} today={today} byEvent={presence.byEvent} />
+          </div>
+
+        <div className="hidden overflow-x-auto scrollbar-thin md:block">
           <table
             className="w-full border-collapse"
             // Computed from the columns actually on screen rather than fixed, so
@@ -1099,7 +1151,7 @@ export function DashboardView({
                         // which is right for the checkboxes and wrong here — the
                         // server refuses Start on an unclaimed row, so offering
                         // it painted "In progress" and then took it back.
-                        canStart={canManage || event.assigneeId === currentUser.id}
+                        canStart={canWorkAnyRow || event.assigneeId === currentUser.id}
                         assigned={event.assigneeId !== null}
                         onToggle={presence.setWorking}
                       />
@@ -1114,10 +1166,10 @@ export function DashboardView({
                         // nothing else — not release it, not pass it on.
                         disabled={
                           isPending(event.id, "assigneeId") ||
-                          (!canManage && event.assigneeId !== null)
+                          (!canAssignOthers && event.assigneeId !== null)
                         }
                         title={
-                          !canManage && event.assigneeId !== null
+                          !canAssignOthers && event.assigneeId !== null
                             ? "Only a manager can change who this is assigned to."
                             : undefined
                         }
@@ -1128,14 +1180,14 @@ export function DashboardView({
                           }))
                         }
                       >
-                        <option value="" disabled={!canManage}>
+                        <option value="" disabled={!canAssignOthers}>
                           {UNASSIGNED_LABEL}
                         </option>
                         {activeUsers.map((user) => (
                           <option
                             key={user.id}
                             value={user.id}
-                            disabled={!canManage && user.id !== currentUser.id}
+                            disabled={!canAssignOthers && user.id !== currentUser.id}
                           >
                             {user.displayName}
                           </option>
@@ -1158,7 +1210,7 @@ export function DashboardView({
                         flagReason={event.flagReason}
                         flagFixedAt={event.flagFixedAt}
                         flagFixedByName={event.flagFixedByName}
-                        canResolve={canManage}
+                        canResolve={canClearFlags}
                         canWork={mayWorkOn(event.assigneeId)}
                         onChanged={() => router.refresh()}
                       />
@@ -1317,7 +1369,12 @@ export function DashboardView({
                         noteCount={noteCount}
                         latest={notes[event.id] ?? null}
                         currentUserId={currentUser.id}
-                        isAdmin={isAdmin}
+                        // Deleting somebody else's note, which `deleteNote`
+                        // still restricts to the built-in administrator rather
+                        // than to a permission. Matched exactly: widening this
+                        // to a permission here would offer a delete the
+                        // service refuses.
+                        isAdmin={currentUser.role === "ADMIN"}
                         canWrite={mayWork}
                         mentionable={activeUsers}
                         onCountChange={(id, delta) =>
@@ -1369,14 +1426,20 @@ export function DashboardView({
                           <Button size="sm" variant="ghost" onClick={() => setEditing(event)}>
                             Edit
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => remove(event)}
-                            style={{ color: "var(--danger)" }}
-                          >
-                            Delete
-                          </Button>
+                          {/* Its own permission, not the one that opened the
+                              column. The two travelled together while Manager
+                              was a fixed rung; a role can now edit events
+                              without being trusted to remove them. */}
+                          {canDeleteEvents ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => remove(event)}
+                              style={{ color: "var(--danger)" }}
+                            >
+                              Delete
+                            </Button>
+                          ) : null}
                         </div>
                       </Td>
                     ) : null}
@@ -1386,6 +1449,7 @@ export function DashboardView({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {visible.length > 0 ? (
@@ -1446,7 +1510,7 @@ export function DashboardView({
             </Select>
           </label>
 
-          <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px]"
+          <label className="hidden cursor-pointer items-center gap-1.5 text-[11.5px] md:flex"
                  style={{ color: "var(--ink-muted)" }}>
             <input
               type="checkbox"
@@ -1458,6 +1522,7 @@ export function DashboardView({
             Shade alternate rows
           </label>
 
+          <span className="hidden md:inline-flex">
           <ColumnPicker
             columns={DASHBOARD_COLUMNS.filter(
               (column) =>
@@ -1467,17 +1532,18 @@ export function DashboardView({
             hidden={hidden}
             onChange={(next) => setPreference({ hiddenColumns: next })}
           />
+          </span>
         </div>
       ) : null}
 
-      {canManage ? (
+      {canEditDetails ? (
         <>
           <EventFormDialog
             open={creating || editing !== null}
             event={editing}
             types={types}
             users={activeUsers}
-            canAssign={canManage}
+            canAssign={canAssignOthers}
             onClose={() => {
               setCreating(false);
               setEditing(null);

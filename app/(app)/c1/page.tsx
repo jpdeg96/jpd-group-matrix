@@ -68,10 +68,7 @@ export default async function C1Page({
       stats={stats}
       offsets={settings.reviewOffsets}
       currentUser={actor.effective}
-      canAssign={actor.effective.role !== "USER"}
-      // Review dates are the deadline everything else is measured against, so
-      // both the per-row picker and the bulk tool are administrator-only.
-      canEditDueDates={actor.effective.role === "ADMIN"}
+      permissions={[...actor.effective.permissions]}
     />
   );
 }

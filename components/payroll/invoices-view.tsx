@@ -68,13 +68,13 @@ const STATUS_TONE: Record<InvoiceStatus, string> = {
 };
 
 export function InvoicesView({
-  isAdmin,
+  canInvoice,
   invoices,
   driveEnabled,
   contractors,
   periods,
 }: {
-  isAdmin: boolean;
+  canInvoice: boolean;
   invoices: Invoice[];
   /** Drive archiving is on and a folder is set, so filing is possible. */
   driveEnabled: boolean;
@@ -232,14 +232,14 @@ export function InvoicesView({
         }
         actions={
           <>
-            {isAdmin && contractors.length > 0 && periods.length > 0 ? (
+            {canInvoice && contractors.length > 0 && periods.length > 0 ? (
               <Button size="sm" onClick={() => setAddingManual(true)}>
                 Add manual invoice
               </Button>
             ) : null}
             {invoices.length > 0 ? (
               <>
-                {isAdmin && driveEnabled && unfiled > 0 ? (
+                {canInvoice && driveEnabled && unfiled > 0 ? (
                 <Button
                   size="sm"
                   loading={filing}
@@ -413,7 +413,7 @@ export function InvoicesView({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {isAdmin && !voided ? (
+                      {canInvoice && !voided ? (
                         <div className="flex flex-wrap gap-1">
                           {invoice.status === "GENERATED" ? (
                             <SmallButton

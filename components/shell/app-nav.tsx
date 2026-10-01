@@ -88,7 +88,7 @@ export function AppNav({
           <Logo src={logoSrc} height={48} alt={siteName} />
         </Link>
 
-        <nav className="flex items-center gap-0.5 overflow-x-auto">
+        <nav className="hidden items-center gap-0.5 overflow-x-auto md:flex">
           {navItems.map(
             (item) => {
               const active =
@@ -125,12 +125,20 @@ export function AppNav({
             </div>
           </div>
 
-          <NotificationBell />
+          <span className="hidden md:inline-flex">
+            <NotificationBell />
+          </span>
 
           {/* Managers and above only — the endpoint enforces the same rule. */}
-          {held.has("presence.viewTeam") ? <TeamPresenceWidget /> : null}
+          {held.has("presence.viewTeam") ? (
+            <span className="hidden md:inline-flex">
+              <TeamPresenceWidget />
+            </span>
+          ) : null}
 
-          <ClockifyWidget />
+          <span className="hidden md:inline-flex">
+            <ClockifyWidget />
+          </span>
 
           {/* In the header rather than the tab row: the tab row is already
               seven items, and help is something you reach for occasionally
@@ -139,7 +147,7 @@ export function AppNav({
             href="/help"
             aria-label="Guide"
             title="How the site works"
-            className="rounded-md border px-2 py-1 text-[11.5px] font-medium transition"
+            className="hidden rounded-md border px-2 py-1 text-[11.5px] font-medium transition md:inline-block"
             style={{
               borderColor: pathname === "/help" ? "transparent" : "var(--line-strong)",
               background: pathname === "/help" ? "var(--accent-soft)" : "transparent",
@@ -155,7 +163,7 @@ export function AppNav({
             <ViewAsMenu targets={impersonationTargets} />
           ) : null}
 
-          <div className="hidden text-right leading-tight sm:block">
+          <div className="text-right leading-tight">
             <div className="text-[11.5px] font-medium">
               <UserChip name={user.displayName} color={user.color} />
             </div>
@@ -167,7 +175,7 @@ export function AppNav({
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/sign-in" })}
-            className="rounded-md border px-2 py-1 text-[11.5px] transition"
+            className="hidden rounded-md border px-2 py-1 text-[11.5px] transition md:inline-block"
             style={{ borderColor: "var(--line-strong)", color: "var(--ink-muted)" }}
           >
             Sign out

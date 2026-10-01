@@ -11,6 +11,7 @@ import {
   StatPill,
 } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/toast";
+import { MobileApprovalsList } from "./mobile-approvals-list";
 import { api, ApiRequestError } from "@/lib/ui/api-client";
 import { formatPlainDate, type PlainDate } from "@/lib/date/plain-date";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
@@ -56,12 +57,13 @@ const STATUS_TONE: Record<ApprovalStatus, string> = {
  * amount, because approving a number you cannot check is not approving.
  */
 export function ApprovalsView({
-  isAdmin,
+  canImportTime,
   period,
   periods,
   rows,
 }: {
-  isAdmin: boolean;
+  /** Whether to tell this reader to go and import, or to go and ask. */
+  canImportTime: boolean;
   period: { id: string; periodStart: PlainDate; periodEnd: PlainDate; depositDate: PlainDate };
   periods: { id: string; periodStart: PlainDate; periodEnd: PlainDate }[];
   rows: Row[];
@@ -192,13 +194,20 @@ export function ApprovalsView({
           <EmptyState
             title="Nothing imported for this week"
             description={
-              isAdmin
+              canImportTime
                 ? "Import the week's Clockify time from the Payroll dashboard to create a row for each contractor."
                 : "An administrator needs to import this week's time before it can be reviewed."
             }
           />
         ) : (
-          <div className="overflow-x-auto scrollbar-thin">
+          <>
+          {/* Phone layout: the same rows, without the eight columns
+              a 1100px table needs to lay them out. */}
+          <div className="md:hidden">
+            <MobileApprovalsList rows={rows} />
+          </div>
+
+          <div className="hidden overflow-x-auto scrollbar-thin md:block">
             <table className="w-full min-w-[1100px] border-collapse text-left">
               <thead style={{ background: "var(--canvas)" }}>
                 <tr>
@@ -312,6 +321,7 @@ export function ApprovalsView({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Card>
     </div>

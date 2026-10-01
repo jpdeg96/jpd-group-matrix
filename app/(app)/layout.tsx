@@ -4,6 +4,7 @@ import { AppNav } from "@/components/shell/app-nav";
 import { ImpersonationBanner } from "@/components/shell/impersonation-banner";
 import { WorkingBanner } from "@/components/shell/working-banner";
 import { SessionKeepAlive } from "@/components/shell/session-keepalive";
+import { MobileNav } from "@/components/shell/mobile-nav";
 import { AnnouncementsDialog } from "@/components/shell/announcements-dialog";
 import { getSettings } from "@/lib/services/settings";
 import { businessToday } from "@/lib/services/settings";
@@ -89,9 +90,13 @@ export default async function AppLayout({
           notes read on their behalf. */}
       <AnnouncementsDialog userId={actor.effective.id} />
 
-      <main className="mx-auto w-full max-w-[1800px] px-3 py-4 lg:px-6">
+      {/* The bar is fixed, so the last row of every screen would sit under
+          it without this. Tall enough for the bar plus the home indicator. */}
+      <main className="mx-auto w-full max-w-[1800px] px-3 py-4 pb-[calc(4.5rem_+_env(safe-area-inset-bottom))] md:pb-4 lg:px-6">
         {children}
       </main>
+
+      <MobileNav permissions={[...actor.effective.permissions]} />
     </div>
   );
 }

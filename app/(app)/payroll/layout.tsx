@@ -21,7 +21,7 @@ export default async function PayrollLayout({ children }: { children: React.Reac
 
   return (
     <div className="space-y-4">
-      <PayrollNav isAdmin={actor.effective.role === "ADMIN"} />
+      <PayrollNav canManageContractors={can(actor, "payroll.manageContractors")} />
       {children}
     </div>
   );

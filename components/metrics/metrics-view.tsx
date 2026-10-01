@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { BarChart, type BarDatum } from "@/components/charts/bar-chart";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { ActivityChart } from "@/components/charts/activity-chart";
+import { MobileFiguresList } from "./mobile-figures-list";
 import {
   categoricalColor,
   SEQUENTIAL_ALT_DARK,
@@ -333,7 +334,12 @@ export function MetricsView({
           {metrics.users.length === 0 ? (
             <EmptyState title="Nobody recorded any activity in this period." />
           ) : (
-            <div className="overflow-x-auto scrollbar-thin">
+            <>
+            <div className="md:hidden">
+              <MobileFiguresList users={metrics.users} />
+            </div>
+
+            <div className="hidden overflow-x-auto scrollbar-thin md:block">
               <table className="w-full min-w-[820px] border-collapse text-left">
                 <thead style={{ background: "var(--canvas)" }}>
                   <tr>
@@ -391,6 +397,7 @@ export function MetricsView({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Card>
       ) : null}

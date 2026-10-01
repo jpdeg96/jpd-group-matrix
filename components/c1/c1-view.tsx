@@ -53,6 +53,7 @@ import {
   ColumnPicker,
   tableMinWidth,
 } from "@/components/dashboard/column-picker";
+import { MobileC1List } from "./mobile-c1-list";
 import type { C1RowView } from "@/lib/services/stages";
 import type { UserOption } from "@/lib/services/users";
 
@@ -73,8 +74,7 @@ export function C1View({
   stats,
   offsets,
   currentUser,
-  canAssign,
-  canEditDueDates,
+  permissions,
 }: {
   rows: C1RowView[];
   latestNotes: Record<string, NoteView>;
@@ -91,9 +91,15 @@ export function C1View({
   };
   offsets: number[];
   currentUser: { id: string; role: string };
-  canAssign: boolean;
-  /** Administrators only — covers both the row picker and the bulk tool. */
-  canEditDueDates: boolean;
+  /**
+   * The viewer's resolved grants — the same set the routes check.
+   *
+   * Not a role. A custom role is none of the three built-ins, so the old
+   * `role !== "USER"` test was true for every one of them, including a role
+   * with nothing ticked — which offered Start and Assign to people the
+   * server then refused.
+   */
+  permissions: readonly string[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -113,6 +119,18 @@ export function C1View({
   // pipeline is empty.
   const [rangeFilter, setRangeFilter] = React.useState<DueRangeKey | null>("TODAY");
   const [mineOnly, setMineOnly] = React.useState(false);
+
+  /*
+   * A phone opens on your own reviews, for the same reason the Dashboard
+   * does. Set once on mount rather than bound to the viewport, so turning it
+   * off stays off across a rotation.
+   */
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (window.matchMedia("(max-width: 767px)").matches) setMineOnly(true);
+    // Mount only — a starting position, not a binding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [flaggedOnly, setFlaggedOnly] = React.useState(false);
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [bulkOpen, setBulkOpen] = React.useState(false);
@@ -161,10 +179,21 @@ export function C1View({
    */
   const self = currentUser.id;
 
+  /*
+   * One name per permission the server checks. Working a row somebody else
+   * holds and reassigning it are different grants; they only looked like one
+   * while Manager was a fixed rung that always held both.
+   */
+  const held = React.useMemo(() => new Set(permissions), [permissions]);
+  const canWorkAnyRow = held.has("events.workAnyRow");
+  const canAssignOthers = held.has("events.assignOthers");
+  const canClearFlags = held.has("flags.clear");
+  const canEditDueDates = held.has("stages.editDueDates");
+
   /** Start: the reviewer only. Unassigned is refused — claim the stage first. */
   const mayStart = React.useCallback(
-    (row: C1RowView) => canAssign || row.assigneeId === self,
-    [canAssign, self],
+    (row: C1RowView) => canWorkAnyRow || row.assigneeId === self,
+    [canWorkAnyRow, self],
   );
 
   /**
@@ -174,17 +203,17 @@ export function C1View({
    */
   const mayWrite = React.useCallback(
     (row: C1RowView) =>
-      canAssign ||
+      canWorkAnyRow ||
       row.eventAssigneeId === null ||
       row.eventAssigneeId === self ||
       row.assigneeId === self,
-    [canAssign, self],
+    [canWorkAnyRow, self],
   );
 
   /** The Done tick: the reviewer, or anybody while the stage is unclaimed. */
   const mayTick = React.useCallback(
-    (row: C1RowView) => canAssign || row.assigneeId === null || row.assigneeId === self,
-    [canAssign, self],
+    (row: C1RowView) => canWorkAnyRow || row.assigneeId === null || row.assigneeId === self,
+    [canWorkAnyRow, self],
   );
 
   // Somebody else ticked a stage, or an event arrived from the Dashboard.
@@ -390,7 +419,7 @@ export function C1View({
           </div>
         }
         actions={
-          <>
+          <span className="hidden flex-wrap items-center gap-2 md:flex">
             {canEditDueDates && selected.size > 0 ? (
               <Button size="sm" variant="primary" onClick={() => setBulkOpen(true)}>
                 Edit {selected.size} review date{selected.size === 1 ? "" : "s"}
@@ -399,7 +428,7 @@ export function C1View({
             <Button size="sm" onClick={exportCsv} disabled={visible.length === 0}>
               Export CSV
             </Button>
-          </>
+          </span>
         }
       />
 
@@ -545,7 +574,13 @@ export function C1View({
           }
         />
       ) : (
-        <div className="overflow-x-auto scrollbar-thin">
+        <>
+          {/* Phone layout. Same rows, same page, same filters as the table. */}
+          <div className="md:hidden">
+            <MobileC1List rows={paged} today={today} />
+          </div>
+
+        <div className="hidden overflow-x-auto scrollbar-thin md:block">
           <table
             className="w-full border-collapse"
             style={{
@@ -819,10 +854,10 @@ export function C1View({
                         // nothing else — not release it, not pass it on.
                         disabled={
                           isPending(row.stageId, "assigneeId") ||
-                          (!canAssign && row.assigneeId !== null)
+                          (!canAssignOthers && row.assigneeId !== null)
                         }
                         title={
-                          !canAssign && row.assigneeId !== null
+                          !canAssignOthers && row.assigneeId !== null
                             ? "Only a manager can change who this is assigned to."
                             : undefined
                         }
@@ -833,7 +868,7 @@ export function C1View({
                           }))
                         }
                       >
-                        <option value="" disabled={!canAssign}>
+                        <option value="" disabled={!canAssignOthers}>
                           {UNASSIGNED_LABEL}
                         </option>
                         {activeUsers.map((user) => (
@@ -843,7 +878,7 @@ export function C1View({
                             // Claiming is the only move a regular user has, so
                             // everyone else is greyed out rather than offered
                             // and then rejected by the server.
-                            disabled={!canAssign && user.id !== currentUser.id}
+                            disabled={!canAssignOthers && user.id !== currentUser.id}
                           >
                             {user.displayName}
                           </option>
@@ -866,7 +901,7 @@ export function C1View({
                         flagReason={row.flagReason}
                         flagFixedAt={row.flagFixedAt}
                         flagFixedByName={row.flagFixedByName}
-                        canResolve={canAssign}
+                        canResolve={canClearFlags}
                         canWork={mayWrite(row)}
                         onChanged={() => router.refresh()}
                       />
@@ -890,6 +925,7 @@ export function C1View({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {visible.length > 0 ? (
@@ -949,7 +985,7 @@ export function C1View({
             </Select>
           </label>
 
-          <label className="flex cursor-pointer items-center gap-1.5 text-[11.5px]"
+          <label className="hidden cursor-pointer items-center gap-1.5 text-[11.5px] md:flex"
                  style={{ color: "var(--ink-muted)" }}>
             <input
               type="checkbox"
@@ -961,11 +997,13 @@ export function C1View({
             Shade alternate rows
           </label>
 
-          <ColumnPicker
-            columns={C1_COLUMNS}
-            hidden={hidden}
-            onChange={(next) => setPreference({ hiddenColumns: next })}
-          />
+          <span className="hidden md:inline-flex">
+            <ColumnPicker
+              columns={C1_COLUMNS}
+              hidden={hidden}
+              onChange={(next) => setPreference({ hiddenColumns: next })}
+            />
+          </span>
         </div>
       ) : null}
 

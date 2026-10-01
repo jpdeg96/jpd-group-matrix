@@ -2,125 +2,31 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button, UserChip } from "@/components/ui/primitives";
-import { api } from "@/lib/ui/api-client";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
-
-type NotificationKind = "FLAG_RAISED" | "FLAG_FIXED" | "FLAG_CLEARED" | "MENTIONED";
-
-interface NotificationView {
-  id: string;
-  kind: NotificationKind;
-  eventId: string;
-  eventLabel: string;
-  actorName: string | null;
-  actorColor: string | null;
-  detail: string | null;
-  readAt: string | null;
-  createdAt: string;
-}
-
-/**
- * Polling cadence when the live stream is unavailable.
- *
- * Only a fallback. The stream is the normal path; this covers a browser or
- * proxy that blocks event streams outright, where silently never updating
- * would be far worse than a slow update.
- */
-const POLL_MS = 20_000;
-
-const HEADLINE: Record<NotificationKind, string> = {
-  FLAG_RAISED: "flagged an event",
-  FLAG_FIXED: "marked a flag resolved",
-  FLAG_CLEARED: "cleared a flag you were on",
-  MENTIONED: "mentioned you in a note",
-};
+import {
+  NOTIFICATION_HEADLINE,
+  useNotifications,
+  type NotificationView,
+} from "./use-notifications";
 
 /**
  * What needs this person's attention.
  *
- * Only ever their own: the endpoint takes no recipient, so there is no request
- * shape that asks for somebody else's. Clicking an entry marks it read and
- * opens the event on the screen it belongs to, because a notification you
- * cannot act on from is just an interruption.
+ * The dropdown is the desktop shape. On a phone the same list is a whole
+ * screen at /alerts, reached from the tab bar — a 26rem panel hanging off a
+ * header icon does not fit a 390px viewport, and the list is the main event
+ * there rather than a glance.
+ *
+ * Clicking an entry marks it read and opens the event on the screen it belongs
+ * to, because a notification you cannot act on from is just an interruption.
  */
 export function NotificationBell() {
   const router = useRouter();
-  const [items, setItems] = React.useState<NotificationView[]>([]);
-  const [unread, setUnread] = React.useState(0);
+  const { items, unread, markRead, clear } = useNotifications();
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
-
-  const load = React.useCallback(async () => {
-    try {
-      const data = await api.get<{
-        notifications: NotificationView[];
-        unreadCount: number;
-      }>("/api/notifications");
-      setItems(data.notifications);
-      setUnread(data.unreadCount);
-    } catch {
-      // Ambient: a failed poll keeps the last known state rather than claiming
-      // the bell is empty.
-    }
-  }, []);
-
-  /*
-   * Live, not polled.
-   *
-   * A flag raised on somebody's event is a request for them to do something
-   * now, and the whole point is lost if they find out on their next page load.
-   * The server pushes when the list actually changes; a browser that cannot use
-   * event streams falls back to polling rather than silently never updating.
-   *
-   * EventSource reconnects on its own, so a dropped connection heals without
-   * any retry logic here — and the server re-sends on the first tick of each
-   * connection, so nothing that happened across the gap is missed.
-   */
-  React.useEffect(() => {
-    let cancelled = false;
-    let source: EventSource | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | undefined;
-
-    const startPolling = () => {
-      if (pollTimer || cancelled) return;
-      void load();
-      pollTimer = setInterval(() => void load(), POLL_MS);
-    };
-
-    if (typeof EventSource === "undefined") {
-      startPolling();
-    } else {
-      source = new EventSource("/api/notifications/stream");
-
-      source.addEventListener("notifications", (event) => {
-        if (cancelled) return;
-        try {
-          const payload = JSON.parse((event as MessageEvent).data) as {
-            notifications: NotificationView[];
-            unreadCount: number;
-          };
-          setItems(payload.notifications);
-          setUnread(payload.unreadCount);
-        } catch {
-          // Ignore a malformed frame rather than tearing down the stream.
-        }
-      });
-
-      // The server closes every ~50s by design and the browser reconnects, so
-      // an error here is usually that expected cycle. Only fall back to polling
-      // if the connection is genuinely dead.
-      source.onerror = () => {
-        if (source && source.readyState === EventSource.CLOSED) startPolling();
-      };
-    }
-
-    return () => {
-      cancelled = true;
-      source?.close();
-      if (pollTimer) clearInterval(pollTimer);
-    };
-  }, [load]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -137,22 +43,6 @@ export function NotificationBell() {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  async function send(body: Record<string, unknown>) {
-    try {
-      const data = await api.post<{
-        notifications: NotificationView[];
-        unreadCount: number;
-      }>("/api/notifications", body);
-      setItems(data.notifications);
-      setUnread(data.unreadCount);
-    } catch {
-      void load();
-    }
-  }
-
-  const markRead = (ids: string[] | "ALL") =>
-    send(ids === "ALL" ? { action: "READ_ALL" } : { action: "READ", ids });
 
   function openEvent(item: NotificationView) {
     setOpen(false);
@@ -211,7 +101,7 @@ export function NotificationBell() {
                   size="sm"
                   variant="ghost"
                   title="Remove them all. Marking read only says you have seen them."
-                  onClick={() => void send({ action: "CLEAR" })}
+                  onClick={() => void clear()}
                 >
                   Clear
                 </Button>
@@ -246,7 +136,7 @@ export function NotificationBell() {
                     <span className="text-[11.5px] font-medium">Somebody</span>
                   )}
                   <span className="text-[11.5px]" style={{ color: "var(--ink-muted)" }}>
-                    {HEADLINE[item.kind]}
+                    {NOTIFICATION_HEADLINE[item.kind]}
                   </span>
                 </span>
                 <span
@@ -271,6 +161,17 @@ export function NotificationBell() {
               ) : null}
             </button>
           ))}
+
+          <div className="border-t px-2 py-1.5" style={{ borderColor: "var(--line)" }}>
+            <Link
+              href="/alerts"
+              onClick={() => setOpen(false)}
+              className="text-[11px] underline"
+              style={{ color: "var(--ink-muted)" }}
+            >
+              Open as a full page
+            </Link>
+          </div>
         </div>
       ) : null}
     </div>

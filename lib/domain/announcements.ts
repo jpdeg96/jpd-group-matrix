@@ -43,6 +43,20 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-10-01-phone-layout",
+    date: "Oct 1, 2026",
+    kind: "added",
+    title: "The site works on a phone",
+    body: "Open the site on a phone and you now get a layout built for it: a row of tabs along the bottom for Events, C1, Alerts, Team and Metrics, and your work as cards instead of a table you have to drag sideways. Events and C1 open on what is assigned to you — tap Mine to widen it. Alerts is the bell as a full screen, with flags and mentions as they arrive; Team is who is working on what; Payroll approval and the rest are under More. The phone layout is for reading: ticking, starting and assigning still happen at a desk, where the row you are acting on is in front of you. Nothing about the desktop screens has changed.",
+  },
+  {
+    id: "2026-10-01-custom-role-buttons",
+    date: "Oct 1, 2026",
+    kind: "fixed",
+    title: "Buttons now match what a custom role may actually do",
+    body: "A role you made yourself was treated as a manager by the screens — the Dashboard and C1 offered it Edit, Delete, Bulk actions and the Assigned dropdown, and Payroll offered it invoices and remittance — while the server went on checking the permissions you had actually ticked. The result was a button that did nothing, or an update that appeared and then vanished. Every one of those now asks for the same permission the server checks, so a role is offered exactly what it may do. This only ever affected roles you created; Administrator, Manager and User were unchanged throughout. Deleting an event and sending remittance are also now separate ticks from editing and invoicing, so a role can be trusted with one without the other.",
+  },
+  {
     id: "2026-09-28-editable-permissions",
     date: "Sep 28, 2026",
     kind: "added",
