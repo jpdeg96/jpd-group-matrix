@@ -10,6 +10,9 @@ import {
   UserChip,
 } from "@/components/ui/primitives";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
+import { PushEnroll } from "@/components/shell/push-enroll";
+import { useToast } from "@/components/ui/toast";
+import { api } from "@/lib/ui/api-client";
 import {
   NOTIFICATION_HEADLINE,
   useNotifications,
@@ -39,9 +42,33 @@ const TONE: Record<NotificationKind, { bg: string; fg: string; label: string }> 
  * which is a fine shape for a glance on a wide screen and the wrong shape for
  * the thing you opened your phone to check.
  */
-export function AlertsView() {
+export function AlertsView({
+  clockPreference,
+}: {
+  /** Null when this person's role may not hear them, or push is not set up. */
+  clockPreference: { enabled: boolean } | null;
+}) {
   const router = useRouter();
+  const toast = useToast();
   const { items, unread, markRead, clear } = useNotifications();
+
+  const [clockOn, setClockOn] = React.useState(clockPreference?.enabled ?? false);
+  const [savingClock, setSavingClock] = React.useState(false);
+
+  async function setClockEvents(next: boolean) {
+    // Optimistic, and rolled back on refusal: this is a switch, and a switch
+    // that waits for a round trip before moving reads as broken.
+    setClockOn(next);
+    setSavingClock(true);
+    try {
+      await api.patch("/api/preferences", { pushClockEvents: next });
+    } catch {
+      setClockOn(!next);
+      toast.error("Could not save that preference.");
+    } finally {
+      setSavingClock(false);
+    }
+  }
 
   function openEvent(item: NotificationView) {
     if (!item.readAt) void markRead([item.id]);
@@ -50,6 +77,35 @@ export function AlertsView() {
 
   return (
     <div className="space-y-3">
+      {/* Only here, and only on a phone. This is the screen somebody is on
+          when they are thinking about notifications; putting it on the
+          dashboard would be nagging about a phone feature on a laptop. */}
+      <PushEnroll />
+
+      {clockPreference ? (
+        <Card>
+          <label className="flex cursor-pointer items-start gap-3 p-3">
+            <input
+              type="checkbox"
+              checked={clockOn}
+              disabled={savingClock}
+              onChange={(event) => void setClockEvents(event.target.checked)}
+              style={{ accentColor: "var(--accent)" }}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">
+                Tell me when somebody clocks in or out
+              </span>
+              <span className="mt-0.5 block text-[12px]" style={{ color: "var(--ink-muted)" }}>
+                Sent to any device where you have turned notifications on.
+                Turning this off leaves flags and mentions coming through.
+              </span>
+            </span>
+          </label>
+        </Card>
+      ) : null}
+
       <Card>
         <PageHeader
           title="Alerts"

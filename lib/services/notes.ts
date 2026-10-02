@@ -14,7 +14,7 @@ import { forbidden, notFound, validationError } from "@/lib/errors";
 import { assertCanWorkOn, auditActor, type ActorContext } from "@/lib/auth/actor";
 import { findMentions } from "@/lib/domain/mentions";
 import { recordAudit } from "./audit";
-import { notify } from "./notifications";
+import { notify, pushNotifications } from "./notifications";
 import { loadHolders } from "./holders";
 
 export interface NoteView {
@@ -142,6 +142,9 @@ export async function addNote(
   });
   const mentioned = findMentions(trimmed, mentionable);
 
+  // Collected inside the transaction, sent after it commits.
+  let pushIds: string[] = [];
+
   const note = await prisma.$transaction(async (tx) => {
     const created = await tx.eventNote.create({
       data: {
@@ -162,7 +165,7 @@ export async function addNote(
     });
 
     if (mentioned.length > 0) {
-      await notify(
+      pushIds = await notify(
         {
           recipientIds: mentioned.map((user) => user.id),
           actorId: actor.effective.id,
@@ -176,6 +179,10 @@ export async function addNote(
 
     return created;
   });
+
+  // After the commit, never inside it: a push cannot be rolled back, and the
+  // transaction above still can be.
+  await pushNotifications(pushIds);
 
   await recordAudit({
     ...auditActor(actor),

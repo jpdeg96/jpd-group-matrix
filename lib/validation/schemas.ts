@@ -214,7 +214,13 @@ export const c1QuerySchema = z.object({
 
 /** A person's own preferences, editable by that person for themselves. */
 export const updatePreferencesSchema = z.object({
-  theme: z.enum(THEMES).nullable(),
+  theme: z.enum(THEMES).nullable().optional(),
+  /**
+   * Whether clock-in and clock-out reach this person's devices. Their own
+   * call; whether they may be told at all is the `clock.notify` permission,
+   * which is a manager's call about their role.
+   */
+  pushClockEvents: z.boolean().optional(),
 });
 
 /**

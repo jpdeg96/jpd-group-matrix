@@ -114,6 +114,18 @@ model User {
   /// everybody.
   canStartCompleted Boolean @default(false) @map("can_start_completed")
 
+  /// Whether to push clock-in and clock-out to this person's devices.
+  ///
+  /// Separate from the `clock.notify` permission, which decides whether they
+  /// may be told at all. The permission is the manager's call about a role; this
+  /// is the person's own call about their phone, and somebody who supervises a
+  /// shift they are not working should be able to say no without giving up the
+  /// rest of their notifications.
+  pushClockEvents Boolean @default(true) @map("push_clock_events")
+
+  pushSubscriptions PushSubscription[]
+  clockStatus       ClockStatus?
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -841,4 +853,81 @@ model Invoice {
   @@index([payrollPeriodId, status])
   @@index([contractorId, generatedAt(sort: Desc)])
   @@map("invoices")
+}
+
+/// One browser's permission to send this person notifications.
+///
+/// A row per *device*, not per person: somebody with a phone and a desktop has
+/// two, and revoking one must not silence the other. The endpoint is the
+/// identity — push services issue a new one rather than updating an old one,
+/// so re-subscribing on the same device creates a row and the stale one is
+/// pruned when it starts failing.
+model PushSubscription {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The push service URL. Unique because it *is* the subscription.
+  endpoint String @unique
+
+  /// The keys the payload is encrypted to. Useless without them — a push
+  /// service only relays ciphertext it cannot read.
+  p256dh String
+  auth   String
+
+  /// Which browser this came from, so a stale device is recognisable in the
+  /// list somebody is asked to prune.
+  userAgent String? @map("user_agent")
+
+  /// Consecutive send failures. A push service answering 404 or 410 means the
+  /// subscription is dead and the row is deleted outright; this counts the
+  /// softer failures, so a device that has been unreachable for a long run can
+  /// be retired without deleting one that had a single bad night.
+  failureCount Int @default(0) @map("failure_count")
+
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+/// The last clock state we told anybody about.
+///
+/// Clocking in happens in Clockify, not here, so a transition can only be
+/// noticed by comparing a poll against what was true last time. Without this
+/// row there is nothing to compare to, and every poll would either announce
+/// everybody who is currently on the clock or announce nothing at all.
+model ClockStatus {
+  userId String @id @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Whether they were on the clock at `checkedAt`.
+  running Boolean @default(false)
+
+  /// When the running entry started, straight from Clockify. Used to catch a
+  /// clock-out-and-straight-back-in between two polls, which leaves `running`
+  /// true at both ends and would otherwise pass unnoticed.
+  startedAt DateTime? @map("started_at") @db.Timestamptz(6)
+
+  checkedAt DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  @@map("clock_status")
+}
+
+/// A short, renewable claim on a job only one process may run.
+///
+/// The clock poller runs inside the web server rather than as its own service.
+/// That is simple and right for one instance, and silently wrong the moment
+/// there are two: both would poll, both would see the same transition, and
+/// everybody would get every notification twice. Whoever holds the lease polls;
+/// everybody else skips the tick. An expiry rather than a release flag, so a
+/// process that dies mid-tick does not hold the job shut forever.
+model SystemLease {
+  name      String   @id
+  holder    String
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@map("system_leases")
 }

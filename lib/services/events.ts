@@ -34,7 +34,7 @@ import {
 
 import { businessToday, getScheduleConfig, getSettings } from "./settings";
 import { recordAudit } from "./audit";
-import { managerIds, notify } from "./notifications";
+import { managerIds, notify, pushNotifications } from "./notifications";
 import { loadHolders, type EventHolders } from "./holders";
 
 /**
@@ -983,6 +983,9 @@ export async function flagEvent(
 
   assertCanWorkOn(actor, await holdersFor(eventId), "raise a flag on");
 
+  // Collected inside the transaction, sent after it commits.
+  let pushIds: string[] = [];
+
   await prisma.$transaction(async (tx) => {
     await tx.event.update({
       where: { id: eventId },
@@ -1017,7 +1020,7 @@ export async function flagEvent(
           await managerIds(tx)
       : await managerIds(tx);
 
-    await notify(
+    pushIds = await notify(
       {
         recipientIds: recipients,
         actorId: actor.effective.id,
@@ -1028,6 +1031,10 @@ export async function flagEvent(
       tx,
     );
   });
+
+  // After the commit, never inside it: a push cannot be rolled back, and the
+  // transaction above still can be.
+  await pushNotifications(pushIds);
 
   await recordAudit({
     ...auditActor(actor),
@@ -1065,13 +1072,16 @@ export async function markFlagFixed(
 
   assertCanWorkOn(actor, await holdersFor(eventId), "resolve the flag on");
 
+  // Collected inside the transaction, sent after it commits.
+  let pushIds: string[] = [];
+
   await prisma.$transaction(async (tx) => {
     await tx.event.update({
       where: { id: eventId },
       data: { flagFixedAt: new Date(), flagFixedById: actor.effective.id },
     });
 
-    await notify(
+    pushIds = await notify(
       {
         recipientIds: await managerIds(tx),
         actorId: actor.effective.id,
@@ -1082,6 +1092,10 @@ export async function markFlagFixed(
       tx,
     );
   });
+
+  // After the commit, never inside it: a push cannot be rolled back, and the
+  // transaction above still can be.
+  await pushNotifications(pushIds);
 
   await recordAudit({
     ...auditActor(actor),
@@ -1118,6 +1132,9 @@ export async function resolveFlag(
   if (!existing) throw notFound("That event no longer exists.");
   if (!existing.flaggedAt) throw conflict("This event is not flagged.");
 
+  // Collected inside the transaction, sent after it commits.
+  let pushIds: string[] = [];
+
   await prisma.$transaction(async (tx) => {
     await tx.event.update({
       where: { id: eventId },
@@ -1134,7 +1151,7 @@ export async function resolveFlag(
     // Whoever raised it and whoever fixed it both want to know it is closed —
     // the first because their escalation was answered, the second because
     // theirs was accepted.
-    await notify(
+    pushIds = await notify(
       {
         recipientIds: [existing.flaggedById, existing.flagFixedById].filter(
           (id): id is string => id !== null,
@@ -1147,6 +1164,10 @@ export async function resolveFlag(
       tx,
     );
   });
+
+  // After the commit, never inside it: a push cannot be rolled back, and the
+  // transaction above still can be.
+  await pushNotifications(pushIds);
 
   await recordAudit({
     ...auditActor(actor),

@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-10-01-push-notifications",
+    date: "Oct 1, 2026",
+    kind: "added",
+    title: "Flags and mentions can reach your lock screen",
+    body: "Open Alerts on your phone and there is now a Turn on button: after that, a flag raised on one of your events or a note that mentions you arrives as a notification, whether or not the site is open. Tapping it opens the event. One catch, and it is Apple's rather than ours — an iPhone will only send notifications to a site that has been added to your Home Screen, not to a Safari tab, so the Alerts screen walks you through the three taps first. Android has no such requirement. Managers and administrators also get told when somebody clocks in or out of Clockify, with a switch on the same screen to turn just that part off if it is more than you want to know.",
+  },
+  {
     id: "2026-10-01-phone-layout",
     date: "Oct 1, 2026",
     kind: "added",

@@ -21,15 +21,23 @@ export const dynamic = "force-dynamic";
 export async function PATCH(request: NextRequest) {
   return handle(async () => {
     const actor = await requireUser();
-    const { theme } = updatePreferencesSchema.parse(await readJson(request));
+    const input = updatePreferencesSchema.parse(await readJson(request));
 
     // The *effective* user: an administrator viewing as someone else is
     // changing that person's screen, which is what makes it a faithful preview.
-    await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id: actor.effective.id },
-      data: { theme },
+      data: {
+        // Each field only when sent, so a client saving one preference does
+        // not silently reset the other to its default.
+        ...(input.theme !== undefined ? { theme: input.theme } : {}),
+        ...(input.pushClockEvents !== undefined
+          ? { pushClockEvents: input.pushClockEvents }
+          : {}),
+      },
+      select: { theme: true, pushClockEvents: true },
     });
 
-    return jsonOk({ theme });
+    return jsonOk(updated);
   });
 }

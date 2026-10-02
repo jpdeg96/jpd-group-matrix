@@ -12,14 +12,21 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   /**
-   * pdfkit must not be bundled.
+   * Packages that must be required at runtime rather than bundled.
    *
-   * It reads its font metrics from disk at runtime — `data/Helvetica.afm`,
-   * resolved relative to its own module. Bundling moves the code into
+   * `pdfkit` reads its font metrics from disk — `data/Helvetica.afm`, resolved
+   * relative to its own module. Bundling moves the code into
    * `.next/server/chunks` without those files, so every invoice PDF fails with
    * ENOENT. Left external, it loads from node_modules with its data intact.
+   *
+   * `web-push` pulls in `https-proxy-agent`, which requires Node's `http` and
+   * `https` by name. It is reached from `instrumentation.ts`, which Next
+   * compiles for every runtime including ones that have no such modules — and
+   * a resolution failure there is not contained to the feature: it takes down
+   * every route in the application with a 500. External, it is never traced
+   * into that graph.
    */
-  serverExternalPackages: ["pdfkit"],
+  serverExternalPackages: ["pdfkit", "web-push"],
 };
 
 export default nextConfig;

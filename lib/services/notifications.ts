@@ -15,6 +15,7 @@
 import type { NotificationKind, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { ActorContext } from "@/lib/auth/actor";
+import { isPushConfigured, sendPush } from "./push";
 
 /** How many the bell will show at once. */
 export const NOTIFICATION_PAGE = 30;
@@ -60,13 +61,13 @@ interface NotifyInput {
 export async function notify(
   input: NotifyInput,
   tx: Prisma.TransactionClient = prisma,
-): Promise<number> {
+): Promise<string[]> {
   const recipients = [...new Set(input.recipientIds)].filter(
     (id) => id !== input.actorId,
   );
-  if (recipients.length === 0) return 0;
+  if (recipients.length === 0) return [];
 
-  const created = await tx.notification.createMany({
+  const created = await tx.notification.createManyAndReturn({
     data: recipients.map((recipientId) => ({
       recipientId,
       actorId: input.actorId,
@@ -74,10 +75,84 @@ export async function notify(
       eventId: input.eventId,
       detail: input.detail ?? null,
     })),
+    select: { id: true },
   });
 
-  return created.count;
+  return created.map((row) => row.id);
 }
+
+/**
+ * Push the notifications `notify` just recorded.
+ *
+ * Deliberately a second call, made by the caller *after* its transaction has
+ * committed, rather than something `notify` does itself. The whole reason this
+ * module sends nothing is that a notification written inside a transaction can
+ * be rolled back, and a push cannot — pushing from inside would be exactly the
+ * failure the file header rules out: a message on somebody's lock screen
+ * describing a flag that no longer exists.
+ *
+ * Reading back by id rather than taking the input again is what makes that
+ * guarantee hold: a row that is gone is not read, and nothing is sent for it.
+ *
+ * Never throws. A push service being unreachable is not a reason for the write
+ * that prompted it to fail.
+ */
+export async function pushNotifications(ids: readonly string[]): Promise<void> {
+  if (ids.length === 0 || !isPushConfigured()) return;
+
+  try {
+    const rows = await prisma.notification.findMany({
+      where: { id: { in: [...ids] } },
+      select: {
+        recipientId: true,
+        kind: true,
+        eventId: true,
+        detail: true,
+        actor: { select: { displayName: true } },
+        event: {
+          select: {
+            eventDate: true,
+            awayTeam: true,
+            homeTeam: true,
+            eventType: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    // Grouped by recipient so one person getting three at once is three
+    // pushes to their devices, not three fan-outs recomputed per row.
+    await Promise.all(
+      rows.map((row) => {
+        const who = row.actor?.displayName ?? "Somebody";
+        const label =
+          row.event.awayTeam && row.event.homeTeam
+            ? `${row.event.awayTeam} at ${row.event.homeTeam}`
+            : (row.event.awayTeam ?? row.event.homeTeam ?? row.event.eventType.name);
+
+        return sendPush([row.recipientId], {
+          title: `${who} ${PUSH_HEADLINE[row.kind]}`,
+          body: row.detail ? `${label} — ${row.detail}` : label,
+          url: `/dashboard?focus=${row.eventId}`,
+          // One event collapses into one line on the lock screen however many
+          // times it is flagged and resolved while somebody is away.
+          tag: `event:${row.eventId}`,
+          kind: row.kind,
+        });
+      }),
+    );
+  } catch {
+    // Best effort by design. The bell already has every one of these.
+  }
+}
+
+/** How each kind reads as the first line of a lock-screen notification. */
+const PUSH_HEADLINE: Record<NotificationKind, string> = {
+  FLAG_RAISED: "flagged an event",
+  FLAG_FIXED: "marked a flag resolved",
+  FLAG_CLEARED: "cleared a flag you were on",
+  MENTIONED: "mentioned you in a note",
+};
 
 /** Everyone who should hear about a flag when the person who raised it is not a manager. */
 export async function managerIds(

@@ -108,6 +108,13 @@ export const PERMISSIONS = [
     label: "See who is working on what",
     detail: "The Team chip in the header.",
   },
+  {
+    key: "clock.notify",
+    group: "Oversight",
+    label: "Be notified when somebody clocks in or out",
+    detail:
+      "Sent to their phone if they have turned notifications on. Each person can still mute these for themselves without losing the rest.",
+  },
   { key: "audit.view", group: "Oversight", label: "Read the audit log" },
 
   /* Administration ------------------------------------------------------ */
@@ -184,6 +191,7 @@ export const DEFAULT_GRANTS: Record<SystemRoleKey, readonly Permission[]> = {
     "payroll.approve",
     "metrics.viewTeam",
     "presence.viewTeam",
+    "clock.notify",
     "audit.view",
   ],
   ADMIN: [...PERMISSION_KEYS],
