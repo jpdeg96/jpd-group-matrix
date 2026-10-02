@@ -10,7 +10,8 @@ import {
   UserChip,
 } from "@/components/ui/primitives";
 import { formatBusinessTimestamp } from "@/lib/date/business-time";
-import { PushEnroll } from "@/components/shell/push-enroll";
+import { NotificationSettings } from "@/components/shell/notification-settings";
+import type { PushCategoryEntry } from "@/lib/domain/push-categories";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/ui/api-client";
 import {
@@ -43,32 +44,16 @@ const TONE: Record<NotificationKind, { bg: string; fg: string; label: string }> 
  * the thing you opened your phone to check.
  */
 export function AlertsView({
-  clockPreference,
+  pushCategories,
+  pushMuted,
 }: {
-  /** Null when this person's role may not hear them, or push is not set up. */
-  clockPreference: { enabled: boolean } | null;
+  /** Only the categories this person's role may actually be told about. */
+  pushCategories: readonly PushCategoryEntry[];
+  pushMuted: readonly string[];
 }) {
   const router = useRouter();
   const toast = useToast();
   const { items, unread, markRead, clear } = useNotifications();
-
-  const [clockOn, setClockOn] = React.useState(clockPreference?.enabled ?? false);
-  const [savingClock, setSavingClock] = React.useState(false);
-
-  async function setClockEvents(next: boolean) {
-    // Optimistic, and rolled back on refusal: this is a switch, and a switch
-    // that waits for a round trip before moving reads as broken.
-    setClockOn(next);
-    setSavingClock(true);
-    try {
-      await api.patch("/api/preferences", { pushClockEvents: next });
-    } catch {
-      setClockOn(!next);
-      toast.error("Could not save that preference.");
-    } finally {
-      setSavingClock(false);
-    }
-  }
 
   function openEvent(item: NotificationView) {
     if (!item.readAt) void markRead([item.id]);
@@ -77,34 +62,10 @@ export function AlertsView({
 
   return (
     <div className="space-y-3">
-      {/* Only here, and only on a phone. This is the screen somebody is on
-          when they are thinking about notifications; putting it on the
-          dashboard would be nagging about a phone feature on a laptop. */}
-      <PushEnroll />
-
-      {clockPreference ? (
-        <Card>
-          <label className="flex cursor-pointer items-start gap-3 p-3">
-            <input
-              type="checkbox"
-              checked={clockOn}
-              disabled={savingClock}
-              onChange={(event) => void setClockEvents(event.target.checked)}
-              style={{ accentColor: "var(--accent)" }}
-              className="mt-0.5 h-4 w-4 shrink-0"
-            />
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium">
-                Tell me when somebody clocks in or out
-              </span>
-              <span className="mt-0.5 block text-[12px]" style={{ color: "var(--ink-muted)" }}>
-                Sent to any device where you have turned notifications on.
-                Turning this off leaves flags and mentions coming through.
-              </span>
-            </span>
-          </label>
-        </Card>
-      ) : null}
+      {/* Here rather than in Settings: Settings is administrator-only, and
+          these are everybody's own. This is also the screen somebody is on
+          when they are thinking about notifications in the first place. */}
+      <NotificationSettings categories={pushCategories} muted={pushMuted} />
 
       <Card>
         <PageHeader

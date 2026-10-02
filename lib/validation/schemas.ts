@@ -216,11 +216,15 @@ export const c1QuerySchema = z.object({
 export const updatePreferencesSchema = z.object({
   theme: z.enum(THEMES).nullable().optional(),
   /**
-   * Whether clock-in and clock-out reach this person's devices. Their own
-   * call; whether they may be told at all is the `clock.notify` permission,
-   * which is a manager's call about their role.
+   * Which kinds of notification this person does not want pushed. Their own
+   * call; whether they may be told at all is a permission, which is a
+   * manager's call about their role.
+   *
+   * Sent whole rather than as a diff — it is a set of checkboxes submitted
+   * together, and a partial update would need a rule for a key that is simply
+   * absent.
    */
-  pushClockEvents: z.boolean().optional(),
+  pushMuted: z.array(z.string().max(40)).max(20).optional(),
 });
 
 /**

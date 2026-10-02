@@ -39,7 +39,9 @@ async function audienceFor(subjectId: string): Promise<string[]> {
   const candidates = await prisma.user.findMany({
     where: {
       active: true,
-      pushClockEvents: true,
+      // The muted set, so a category added later does not need this query
+      // changed and does not start off for everybody.
+      NOT: { pushMuted: { has: "CLOCK" } },
       id: { not: subjectId },
       roleRef: { permissions: { some: { permission: "clock.notify" } } },
     },

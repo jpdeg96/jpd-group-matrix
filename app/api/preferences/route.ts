@@ -3,6 +3,7 @@ import { handle, jsonOk, readJson } from "@/lib/api/respond";
 import { requireUser } from "@/lib/auth/guards";
 import { prisma } from "@/lib/db/prisma";
 import { updatePreferencesSchema } from "@/lib/validation/schemas";
+import { cleanMuted } from "@/lib/domain/push-categories";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,11 +32,20 @@ export async function PATCH(request: NextRequest) {
         // Each field only when sent, so a client saving one preference does
         // not silently reset the other to its default.
         ...(input.theme !== undefined ? { theme: input.theme } : {}),
-        ...(input.pushClockEvents !== undefined
-          ? { pushClockEvents: input.pushClockEvents }
+        ...(input.pushMuted !== undefined
+          ? {
+              // Unknown keys dropped: a stale category name from an old client
+              // must not silently mute something, and must not be stored to
+              // confuse the next reader.
+              pushMuted: cleanMuted(input.pushMuted),
+              // Kept in step for one release so a rollback to the code that
+              // read this boolean still finds the right answer. Nothing reads
+              // it now.
+              pushClockEvents: !cleanMuted(input.pushMuted).includes("CLOCK"),
+            }
           : {}),
       },
-      select: { theme: true, pushClockEvents: true },
+      select: { theme: true, pushMuted: true },
     });
 
     return jsonOk(updated);

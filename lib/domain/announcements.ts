@@ -43,6 +43,13 @@ export const MAX_SHOWN = 5;
 /** Newest first. */
 export const ANNOUNCEMENTS: readonly Announcement[] = [
   {
+    id: "2026-10-02-notification-choices",
+    date: "Oct 2, 2026",
+    kind: "added",
+    title: "Choose which notifications reach your phone",
+    body: "Alerts now has a Notifications panel with a switch for each kind: mentions, flags raised, flags resolved, and — for anyone whose role may hear them — people clocking in and out. Everything starts on, and turning one off silences only that kind. Your choices follow you to every device; turning notifications on or off is still per device, and both are now in the same place, so a switch that is on while nothing arrives is easy to explain. Turning a kind off never hides anything from the bell — the notification still appears in your list, it just stops interrupting you.",
+  },
+  {
     id: "2026-10-01-push-notifications",
     date: "Oct 1, 2026",
     kind: "added",

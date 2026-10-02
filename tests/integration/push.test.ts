@@ -168,3 +168,112 @@ suite("push subscriptions", () => {
     expect(await subscriptionCount(marcoId)).toBe(1);
   });
 });
+
+/**
+ * Muting, end to end.
+ *
+ * The unit tests cover the rule; these cover that the rule is actually
+ * consulted on the path a real notification takes — which is the half that can
+ * silently stop working without any of them failing.
+ */
+suite("muted categories", () => {
+  let danaId: string;
+  let morganId: string;
+  let eventId: string;
+
+  beforeEach(async () => {
+    rejectWith.clear();
+    delivered.length = 0;
+
+    await prisma.notification.deleteMany();
+    await prisma.pushSubscription.deleteMany();
+    await prisma.auditLog.deleteMany();
+    await prisma.eventNote.deleteMany();
+    await prisma.reviewStage.deleteMany();
+    await prisma.event.deleteMany();
+    await prisma.eventType.deleteMany();
+    await prisma.user.deleteMany();
+
+    const role = await prisma.role.findUniqueOrThrow({ where: { key: "USER" } });
+
+    const dana = await prisma.user.create({
+      data: { email: "dana@test.local", displayName: "Dana", role: "USER", roleId: role.id, color: "#059669" },
+    });
+    danaId = dana.id;
+
+    const morgan = await prisma.user.create({
+      data: { email: "morgan@test.local", displayName: "Morgan", role: "USER", roleId: role.id, color: "#2563eb" },
+    });
+    morganId = morgan.id;
+
+    const type = await prisma.eventType.create({ data: { name: "NFL", sortOrder: 1 } });
+    const event = await prisma.event.create({
+      data: {
+        eventDate: new Date("2026-11-15T00:00:00Z"),
+        eventTypeId: type.id,
+        awayTeam: "Patriots",
+        homeTeam: "Lions",
+        status: "DASHBOARD",
+      },
+    });
+    eventId = event.id;
+
+    await prisma.pushSubscription.create({
+      data: { userId: danaId, endpoint: "https://push.example/dana", p256dh: "k", auth: "a" },
+    });
+  });
+
+  const record = async (kind: "MENTIONED" | "FLAG_RAISED" | "FLAG_FIXED") => {
+    const row = await prisma.notification.create({
+      data: { recipientId: danaId, actorId: morganId, kind, eventId, detail: "note" },
+      select: { id: true },
+    });
+    return row.id;
+  };
+
+  it("pushes a category that has not been muted", async () => {
+    const { pushNotifications } = await import("@/lib/services/notifications");
+    await pushNotifications([await record("MENTIONED")]);
+
+    expect(delivered).toEqual(["https://push.example/dana"]);
+  });
+
+  it("does not push a muted category", async () => {
+    await prisma.user.update({ where: { id: danaId }, data: { pushMuted: ["MENTIONS"] } });
+
+    const { pushNotifications } = await import("@/lib/services/notifications");
+    await pushNotifications([await record("MENTIONED")]);
+
+    expect(delivered).toEqual([]);
+  });
+
+  it("still pushes the categories that were left on", async () => {
+    await prisma.user.update({ where: { id: danaId }, data: { pushMuted: ["MENTIONS"] } });
+
+    const { pushNotifications } = await import("@/lib/services/notifications");
+    await pushNotifications([await record("FLAG_RAISED")]);
+
+    expect(delivered).toEqual(["https://push.example/dana"]);
+  });
+
+  it("silences a muted flag resolution, which shares a switch with fixing", async () => {
+    await prisma.user.update({ where: { id: danaId }, data: { pushMuted: ["FLAGS_RESOLVED"] } });
+
+    const { pushNotifications } = await import("@/lib/services/notifications");
+    await pushNotifications([await record("FLAG_FIXED")]);
+
+    expect(delivered).toEqual([]);
+  });
+
+  it("keeps the bell entry for a muted category", async () => {
+    // Muting is about the phone. Hiding the notification itself would lose the
+    // record of something somebody still needs to deal with.
+    await prisma.user.update({ where: { id: danaId }, data: { pushMuted: ["MENTIONS"] } });
+
+    const id = await record("MENTIONED");
+    const { pushNotifications } = await import("@/lib/services/notifications");
+    await pushNotifications([id]);
+
+    expect(await prisma.notification.findUnique({ where: { id } })).not.toBeNull();
+  });
+});

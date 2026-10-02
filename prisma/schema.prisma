@@ -114,14 +114,21 @@ model User {
   /// everybody.
   canStartCompleted Boolean @default(false) @map("can_start_completed")
 
-  /// Whether to push clock-in and clock-out to this person's devices.
-  ///
-  /// Separate from the `clock.notify` permission, which decides whether they
-  /// may be told at all. The permission is the manager's call about a role; this
-  /// is the person's own call about their phone, and somebody who supervises a
-  /// shift they are not working should be able to say no without giving up the
-  /// rest of their notifications.
+  /// Superseded by `pushMuted`. Kept populated in step with it so a rollback to
+  /// the previous release still finds a usable value; nothing reads it.
   pushClockEvents Boolean @default(true) @map("push_clock_events")
+
+  /// Which kinds of notification this person does NOT want on their devices.
+  ///
+  /// The muted set rather than the enabled one, so a category added later is on
+  /// by default for everybody instead of starting silently off — which looks
+  /// exactly like the feature being broken. Empty means everything.
+  ///
+  /// Separate from permissions, which decide whether somebody may be told at
+  /// all. The permission is a manager's call about a role; this is the person's
+  /// own call about their phone. Muting never suppresses the bell, only the
+  /// push.
+  pushMuted String[] @default([]) @map("push_muted")
 
   pushSubscriptions PushSubscription[]
   clockStatus       ClockStatus?

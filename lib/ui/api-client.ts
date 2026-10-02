@@ -80,7 +80,13 @@ export const api = {
   get: <T>(url: string) => request<T>(url, { method: "GET" }),
   post: <T>(url: string, json?: unknown) => request<T>(url, { method: "POST", json }),
   patch: <T>(url: string, json: unknown) => request<T>(url, { method: "PATCH", json }),
-  delete: <T>(url: string) => request<T>(url, { method: "DELETE" }),
+  /**
+   * `json` is optional because most deletes name their target in the path.
+   * Unsubscribing a push device is the exception: the identifier is a push
+   * service URL hundreds of characters long, which does not belong in a path
+   * segment or a query string.
+   */
+  delete: <T>(url: string, json?: unknown) => request<T>(url, { method: "DELETE", json }),
 };
 
 /** Builds a query string, omitting empty values. */

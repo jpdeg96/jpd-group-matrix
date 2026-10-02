@@ -16,6 +16,7 @@ import type { NotificationKind, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import type { ActorContext } from "@/lib/auth/actor";
 import { isPushConfigured, sendPush } from "./push";
+import { categoryForKind, wantsPush } from "@/lib/domain/push-categories";
 
 /** How many the bell will show at once. */
 export const NOTIFICATION_PAGE = 30;
@@ -108,6 +109,9 @@ export async function pushNotifications(ids: readonly string[]): Promise<void> {
         kind: true,
         eventId: true,
         detail: true,
+        // Read alongside the row rather than looked up per send: the filter is
+        // about this person and this kind, and both are already here.
+        recipient: { select: { pushMuted: true } },
         actor: { select: { displayName: true } },
         event: {
           select: {
@@ -120,10 +124,20 @@ export async function pushNotifications(ids: readonly string[]): Promise<void> {
       },
     });
 
-    // Grouped by recipient so one person getting three at once is three
-    // pushes to their devices, not three fan-outs recomputed per row.
+    /*
+     * Only what each person asked for.
+     *
+     * Filtered here rather than at the call site, because the call site knows
+     * what happened and not who wants to hear about it — and because the bell
+     * entry has already been written either way. Muting a category silences
+     * the phone; it never hides the notification itself.
+     */
+    const wanted = rows.filter((row) =>
+      wantsPush(row.recipient.pushMuted, categoryForKind(row.kind)),
+    );
+
     await Promise.all(
-      rows.map((row) => {
+      wanted.map((row) => {
         const who = row.actor?.displayName ?? "Somebody";
         const label =
           row.event.awayTeam && row.event.homeTeam
